@@ -242,6 +242,30 @@ class DfuSession:
                 pass
         print("P2_5 restored to input mode")
 
+    async def test_relay_power(self):
+        test_char = self._find_char(OTA_SERVICE, OTA_TEST_MODE)
+        if test_char is None:
+            raise RuntimeError("FFD8 probe-control characteristic not found under D0FF service")
+        pin = 21  # P2_5
+        print("Relay polarity test on P2_5.")
+        print("Use a simple lamp as the outlet load and observe whether it is powered.")
+        try:
+            print("  LOW for 5s")
+            await self.client.write_gatt_char(test_char, bytes([pin, 1]), response=False)
+            await asyncio.sleep(5.0)
+            print("  HIGH for 5s")
+            await self.client.write_gatt_char(test_char, bytes([pin, 2]), response=False)
+            await asyncio.sleep(5.0)
+            print("  LOW for 5s")
+            await self.client.write_gatt_char(test_char, bytes([pin, 1]), response=False)
+            await asyncio.sleep(5.0)
+        finally:
+            try:
+                await self.client.write_gatt_char(test_char, bytes([pin, 1]), response=False)
+            except Exception:
+                pass
+        print("Relay test ended with P2_5 LOW")
+
     async def test_led_pair(self):
         test_char = self._find_char(OTA_SERVICE, OTA_TEST_MODE)
         if test_char is None:
@@ -758,6 +782,10 @@ async def amain(args):
             await s.test_relay_p25()
             return
 
+        if args.test_relay_power:
+            await s.test_relay_power()
+            return
+
         if args.test_led_pair:
             await s.test_led_pair()
             return
@@ -824,6 +852,11 @@ def main():
         help="precisely retest suspected relay pin P2_5",
     )
     p.add_argument(
+        "--test-relay-power",
+        action="store_true",
+        help="hold P2_5 LOW/HIGH for 5s each to determine relay ON polarity with a lamp",
+    )
+    p.add_argument(
         "--test-led-pair",
         action="store_true",
         help="drive P2_2/P2_3 in opposite states to identify the two-color LED",
@@ -832,11 +865,11 @@ def main():
     p.add_argument("--yes", action="store_true", help="required acknowledgement for --flash")
     args = p.parse_args()
 
-    if args.gpio_watch is not None and (args.enter_ota or args.enter_ota_flash or args.flash or args.image or args.gpio_scan or args.test_relay_p25 or args.test_led_pair):
+    if args.gpio_watch is not None and (args.enter_ota or args.enter_ota_flash or args.flash or args.image or args.gpio_scan or args.test_relay_p25 or args.test_relay_power or args.test_led_pair):
         p.error("--gpio-watch cannot be combined with OTA/flash/image/scan options")
     if args.gpio_scan and (args.enter_ota or args.enter_ota_flash or args.flash or args.image):
         p.error("--gpio-scan cannot be combined with OTA/flash/image options")
-    if args.test_relay_p25 and (args.enter_ota or args.enter_ota_flash or args.flash or args.image or args.gpio_scan or args.test_led_pair):
+    if args.test_relay_p25 and (args.enter_ota or args.enter_ota_flash or args.flash or args.image or args.gpio_scan or args.test_relay_power or args.test_led_pair):
         p.error("--test-relay-p25 cannot be combined with OTA/flash/image/scan/LED-test options")
     if args.test_led_pair and (args.enter_ota or args.enter_ota_flash or args.flash or args.image or args.gpio_scan):
         p.error("--test-led-pair cannot be combined with OTA/flash/image/scan options")
