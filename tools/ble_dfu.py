@@ -315,13 +315,17 @@ class DfuSession:
             pos += len(block)
             print(f"  checked: {pos}/{total} bytes ({pos * 100 // total}%)")
 
-    async def flash(self, image: bytes):
+    async def flash(self, image: bytes, devinfo_override=None):
         h = validate_app_patch(image)
         image_id = h["image_id"]
 
         # Read-only checks first.
         await self.probe()
-        devinfo = await self.read_device_info()
+        if devinfo_override is not None:
+            devinfo = devinfo_override
+            print("using OTA device-info captured before reboot")
+        else:
+            devinfo = await self.read_device_info()
 
         use_aes = bool(devinfo and devinfo.get("aes"))
         aes_all = bool(devinfo and devinfo.get("aes_mode_all"))
@@ -422,6 +426,29 @@ async def identify_by_power_cycle():
         )
     print("\nUse a candidate with:")
     print("  python tools/ble_dfu.py --address <UUID>")
+
+
+async def find_beetgt_after_reboot(timeout: float = 15.0):
+    print("Scanning immediately for BeeTgt...")
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        found = await scan_snapshot(2.0)
+        for device, adv in found.values():
+            local_name = getattr(adv, "local_name", None) or ""
+            dev_name = getattr(device, "name", None) or ""
+            service_uuids = [
+                str(x).lower()
+                for x in (getattr(adv, "service_uuids", None) or [])
+            ]
+            mfg = getattr(adv, "manufacturer_data", None) or {}
+            if (
+                "beetgt" in f"{local_name} {dev_name}".lower()
+                or (DFU_SERVICE.lower() in service_uuids and 0x005D in mfg)
+            ):
+                print(f"Found OTA target {device.address}  {local_name or dev_name or 'BeeTgt'}")
+                return device.address
+        await asyncio.sleep(0.5)
+    raise RuntimeError("BeeTgt OTA target was not found after reboot")
 
 
 async def find_target(name: str | None, address: str | None):
