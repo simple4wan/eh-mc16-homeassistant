@@ -175,6 +175,51 @@ class DfuSession:
             print(f"activation write ended with disconnect/exception (often expected): {exc}")
 
 
+async def scan_snapshot(seconds: float = 8.0):
+    found: dict[str, tuple[object, object]] = {}
+
+    def on_detect(device, adv):
+        found[str(device.address)] = (device, adv)
+
+    scanner = BleakScanner(detection_callback=on_detect)
+    await scanner.start()
+    await asyncio.sleep(seconds)
+    await scanner.stop()
+    return found
+
+
+async def identify_by_power_cycle():
+    print("IDENTIFY MODE")
+    print("1) Unplug/power OFF only the EH-MC16 smart plug, then press Enter.")
+    await asyncio.to_thread(input)
+    print("Scanning baseline...")
+    before = await scan_snapshot(8.0)
+    print(f"Baseline saw {len(before)} BLE devices.")
+    print("2) Plug/power ON the EH-MC16, wait about 2 seconds, then press Enter.")
+    await asyncio.to_thread(input)
+    print("Scanning after power-on...")
+    after = await scan_snapshot(10.0)
+
+    new_ids = [k for k in after.keys() if k not in before]
+    if not new_ids:
+        print("No new CoreBluetooth UUID appeared. Try again with the plug closer to the Mac.")
+        return
+
+    print("New BLE devices seen after EH-MC16 power-on:")
+    for k in new_ids:
+        device, adv = after[k]
+        local_name = getattr(adv, "local_name", None) or ""
+        dev_name = getattr(device, "name", None)
+        service_uuids = getattr(adv, "service_uuids", None) or []
+        mfg = getattr(adv, "manufacturer_data", None) or {}
+        print(
+            f"  {device.address}  local_name={local_name!r}  device_name={dev_name!r} "
+            f"services={service_uuids!r} mfg_ids={[hex(x) for x in mfg.keys()]}"
+        )
+    print("\nUse a candidate with:")
+    print("  python tools/ble_dfu.py --address <UUID>")
+
+
 async def find_target(name: str | None, address: str | None):
     if address:
         return address
@@ -271,6 +316,10 @@ async def find_target(name: str | None, address: str | None):
 
 
 async def amain(args):
+    if args.identify:
+        await identify_by_power_cycle()
+        return
+
     image = None
     if args.image:
         image, skipped = load_image(Path(args.image))
@@ -304,6 +353,11 @@ def main():
     p.add_argument("--address", help="BLE address/UUID; on macOS Bleak may use a UUID")
     p.add_argument("--name", default="EH-MC16", help="scan-name substring")
     p.add_argument("--image", help="Bee2 app bin or Realtek *_MP.bin")
+    p.add_argument(
+        "--identify",
+        action="store_true",
+        help="identify the EH-MC16 by comparing BLE scans before/after a power cycle",
+    )
     p.add_argument("--flash", action="store_true", help="perform DFU (writes flash)")
     p.add_argument("--yes", action="store_true", help="required acknowledgement for --flash")
     args = p.parse_args()
