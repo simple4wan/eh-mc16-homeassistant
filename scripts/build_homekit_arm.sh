@@ -45,7 +45,7 @@ echo "[homekit] building Mbed TLS crypto archive"
 make -C "$MBED/library" clean >/dev/null || true
 make -C "$MBED/library" libmbedcrypto.a \
   CC="$CC" AR="$AR" \
-  CFLAGS="$MCU_FLAGS -Os -ffunction-sections -fdata-sections" >/dev/null
+  CFLAGS="$MCU_FLAGS -Os -ffunction-sections -fdata-sections -DMBEDTLS_NO_PLATFORM_ENTROPY" >/dev/null
 cp "$MBED/library/libmbedcrypto.a" "$OUT/libmbedcrypto.a"
 
 sources=()
