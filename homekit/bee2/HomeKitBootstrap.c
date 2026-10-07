@@ -121,3 +121,18 @@ void EHHomeKitFactoryReset(void) {
     HAPAccessoryServerStop(&accessoryServer);
     (void) HAPRestoreFactorySettings(&hk.keyValueStore);
 }
+
+void EHHomeKitDidConnect(uint8_t connId) {
+    if (!hk.started) return;
+    EH_HAP_BLE_DidConnect(&hk.blePeripheralManager, connId);
+}
+
+void EHHomeKitDidDisconnect(uint8_t connId) {
+    if (!hk.started) return;
+    EH_HAP_BLE_DidDisconnect(&hk.blePeripheralManager, connId);
+}
+
+void EHHomeKitDidSendData(uint8_t connId) {
+    if (!hk.started) return;
+    EH_HAP_BLE_DidSendData(&hk.blePeripheralManager, connId);
+}
