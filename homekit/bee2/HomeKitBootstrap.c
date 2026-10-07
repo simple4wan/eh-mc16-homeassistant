@@ -93,8 +93,6 @@ void EHHomeKitStart(void) {
 
     hk.callbacks.handleUpdatedState = HandleUpdatedState;
 
-    AppInitialize(&hk.serverOptions, &hk.platform, &hk.callbacks);
-
     HAPAccessoryServerCreate(
             &accessoryServer,
             &hk.serverOptions,
