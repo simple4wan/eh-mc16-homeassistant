@@ -136,3 +136,8 @@ void EHHomeKitDidSendData(uint8_t connId) {
     if (!hk.started) return;
     EH_HAP_BLE_DidSendData(&hk.blePeripheralManager, connId);
 }
+
+void EHHomeKitStackReady(void) {
+    if (!hk.started) return;
+    EH_HAP_BLE_StackReady(&hk.blePeripheralManager);
+}
