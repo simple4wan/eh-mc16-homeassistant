@@ -182,55 +182,74 @@ old_test_write = """    else if (BLE_SERVICE_CHAR_TEST_MODE_INDEX == attrib_inde
 """
 new_test_write = """    else if (BLE_SERVICE_CHAR_TEST_MODE_INDEX == attrib_index)
     {
-        /* EH-MC16 probe control on FFD8.  For safety this ONLY touches P0_5,
-           which the module pinout labels LED1/GPIO.  It never touches the
-           confirmed button P3_2 or any unknown relay candidate.
+        /* EH-MC16 guarded GPIO probe on FFD8.
+           Payload: [pin_num, action]
+             action 0x00 = restore high-impedance input
+             action 0x01 = drive LOW
+             action 0x02 = drive HIGH
 
-           0x00: restore P0_5 to high-impedance GPIO input
-           0x01: drive P0_5 LOW
-           0x02: drive P0_5 HIGH
+           Only exposed candidate pins are allowed.  The confirmed button P3_2
+           and boot/debug/UART pins are intentionally excluded.
         */
-        if ((length != sizeof(uint8_t)) || (p_value == NULL) || p_value[0] > 0x02)
+        if ((length != 2) || (p_value == NULL) || p_value[1] > 0x02)
         {
             wCause = APP_RESULT_INVALID_VALUE_SIZE;
         }
         else
         {
-            const uint32_t pin = GPIO_GetPin(P0_5);
-            Pinmux_Config(P0_5, DWGPIO);
+            uint8_t pin_num = p_value[0];
+            uint8_t action = p_value[1];
+            bool allowed =
+                pin_num == P0_5 || pin_num == P0_6 ||
+                pin_num == P2_2 || pin_num == P2_3 ||
+                pin_num == P2_4 || pin_num == P2_5 ||
+                pin_num == P2_6 || pin_num == P2_7 ||
+                pin_num == P3_3 ||
+                pin_num == P4_0 || pin_num == P4_1 ||
+                pin_num == P4_2 || pin_num == P4_3;
 
-            GPIO_InitTypeDef gpio;
-            GPIO_StructInit(&gpio);
-            gpio.GPIO_Pin = pin;
-            gpio.GPIO_ITCmd = DISABLE;
-
-            if (p_value[0] == 0x00)
+            if (!allowed)
             {
-                Pad_Config(P0_5, PAD_PINMUX_MODE, PAD_IS_PWRON,
-                           PAD_PULL_NONE, PAD_OUT_DISABLE, PAD_OUT_LOW);
-                gpio.GPIO_Mode = GPIO_Mode_IN;
-                GPIO_Init(&gpio);
+                wCause = APP_RESULT_APP_ERR;
             }
             else
             {
-                /* Set the output latch before enabling the pad driver. */
-                if (p_value[0] == 0x01)
+                uint32_t pin = GPIO_GetPin(pin_num);
+                Pinmux_Config(pin_num, DWGPIO);
+
+                GPIO_InitTypeDef gpio;
+                GPIO_StructInit(&gpio);
+                gpio.GPIO_Pin = pin;
+                gpio.GPIO_ITCmd = DISABLE;
+
+                if (action == 0x00)
                 {
-                    GPIO_ResetBits(pin);
-                    Pad_Config(P0_5, PAD_PINMUX_MODE, PAD_IS_PWRON,
-                               PAD_PULL_NONE, PAD_OUT_ENABLE, PAD_OUT_LOW);
+                    Pad_Config(pin_num, PAD_PINMUX_MODE, PAD_IS_PWRON,
+                               PAD_PULL_NONE, PAD_OUT_DISABLE, PAD_OUT_LOW);
+                    gpio.GPIO_Mode = GPIO_Mode_IN;
+                    GPIO_Init(&gpio);
                 }
                 else
                 {
-                    GPIO_SetBits(pin);
-                    Pad_Config(P0_5, PAD_PINMUX_MODE, PAD_IS_PWRON,
-                               PAD_PULL_NONE, PAD_OUT_ENABLE, PAD_OUT_HIGH);
+                    if (action == 0x01)
+                    {
+                        GPIO_ResetBits(pin);
+                        Pad_Config(pin_num, PAD_PINMUX_MODE, PAD_IS_PWRON,
+                                   PAD_PULL_NONE, PAD_OUT_ENABLE, PAD_OUT_LOW);
+                    }
+                    else
+                    {
+                        GPIO_SetBits(pin);
+                        Pad_Config(pin_num, PAD_PINMUX_MODE, PAD_IS_PWRON,
+                                   PAD_PULL_NONE, PAD_OUT_ENABLE, PAD_OUT_HIGH);
+                    }
+                    gpio.GPIO_Mode = GPIO_Mode_OUT;
+                    GPIO_Init(&gpio);
                 }
-                gpio.GPIO_Mode = GPIO_Mode_OUT;
-                GPIO_Init(&gpio);
             }
         }
     }
+"""
 """
 if old_test_write not in otext:
     raise SystemExit("expected TEST_MODE write handler not found")
@@ -245,4 +264,4 @@ print("candidate EH-MC16 pins configured input-only for GPIO probing")
 print("DFU buffer-check forced enabled")
 print("DLPS GPIO callbacks disabled")
 print("D0FF/FFD5 exposes read-only GPIO DATAIN snapshot")
-print("D0FF/FFD8 provides guarded P0_5 LED probe control")
+print("D0FF/FFD8 provides guarded candidate GPIO probe control")
