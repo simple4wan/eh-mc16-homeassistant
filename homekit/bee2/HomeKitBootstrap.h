@@ -9,6 +9,7 @@ extern "C" {
 #endif
 
 void EHHomeKitStart(void);
+void EHHomeKitStackReady(void);
 bool EHHomeKitIsStarted(void);
 void EHHomeKitFactoryReset(void);
 void EHHomeKitDidConnect(uint8_t connId);
