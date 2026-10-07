@@ -576,7 +576,7 @@ async def identify_by_power_cycle():
 async def find_beetgt_after_reboot(timeout: float = 30.0):
     print("Scanning for BeeTgt OTA target...")
     deadline = asyncio.get_running_loop().time() + timeout
-    probed: set[str] = set()
+    last_probe: dict[str, float] = {}
 
     while asyncio.get_running_loop().time() < deadline:
         found = await scan_snapshot(2.0)
@@ -606,7 +606,10 @@ async def find_beetgt_after_reboot(timeout: float = 30.0):
         candidates = []
         for device, adv in found.values():
             address = str(device.address)
-            if address in probed:
+            now = asyncio.get_running_loop().time()
+            # Retry transiently unavailable devices. BeeTgt may advertise
+            # before CoreBluetooth can actually connect to it.
+            if now - last_probe.get(address, 0.0) < 2.0:
                 continue
             local_name = getattr(adv, "local_name", None) or ""
             dev_name = getattr(device, "name", None) or ""
@@ -627,10 +630,10 @@ async def find_beetgt_after_reboot(timeout: float = 30.0):
 
         for device, label in candidates[:10]:
             address = str(device.address)
-            probed.add(address)
+            last_probe[address] = asyncio.get_running_loop().time()
             print(f"  probing {address}  {label} ...", end="", flush=True)
             try:
-                async with BleakClient(device, timeout=4.0) as probe_client:
+                async with BleakClient(device, timeout=2.5) as probe_client:
                     uuids = {str(x.uuid).lower() for x in probe_client.services}
                     is_dfu = DFU_SERVICE.lower() in uuids
                     is_app = OTA_SERVICE.lower() in uuids
