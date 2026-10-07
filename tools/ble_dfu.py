@@ -186,26 +186,37 @@ class DfuSession:
             await asyncio.sleep(0.10)
         print("GPIO watch complete; no GPIO configuration or output writes were performed")
 
-    async def test_p05(self):
+    async def gpio_scan(self, hold: float = 0.6):
         test_char = self._find_char(OTA_SERVICE, OTA_TEST_MODE)
         if test_char is None:
             raise RuntimeError("FFD8 probe-control characteristic not found under D0FF service")
 
-        print("Testing P0_5 only: LOW -> input -> HIGH -> input")
-        print("Watch the LED and listen for a relay click.")
-        try:
-            await self.client.write_gatt_char(test_char, bytes([1]), response=False)
-            await asyncio.sleep(0.7)
-            await self.client.write_gatt_char(test_char, bytes([0]), response=False)
-            await asyncio.sleep(0.7)
-            await self.client.write_gatt_char(test_char, bytes([2]), response=False)
-            await asyncio.sleep(0.7)
-        finally:
+        candidates = [
+            (5, "P0_5"), (6, "P0_6"),
+            (18, "P2_2"), (19, "P2_3"), (20, "P2_4"), (21, "P2_5"),
+            (22, "P2_6"), (23, "P2_7"),
+            (27, "P3_3"),
+            (32, "P4_0"), (33, "P4_1"), (34, "P4_2"), (35, "P4_3"),
+        ]
+        print("Guarded GPIO scan. P3_2(button), boot/debug and UART pins are excluded.")
+        print("For each candidate: LOW -> input -> HIGH -> input.")
+        print("Watch LED state and listen for relay clicks.")
+        for pin_num, name in candidates:
+            print(f"\nTesting {name} (pin id {pin_num})")
             try:
-                await self.client.write_gatt_char(test_char, bytes([0]), response=False)
-            except Exception:
-                pass
-        print("P0_5 restored to input mode")
+                await self.client.write_gatt_char(test_char, bytes([pin_num, 1]), response=False)
+                await asyncio.sleep(hold)
+                await self.client.write_gatt_char(test_char, bytes([pin_num, 0]), response=False)
+                await asyncio.sleep(0.35)
+                await self.client.write_gatt_char(test_char, bytes([pin_num, 2]), response=False)
+                await asyncio.sleep(hold)
+            finally:
+                try:
+                    await self.client.write_gatt_char(test_char, bytes([pin_num, 0]), response=False)
+                except Exception:
+                    pass
+            await asyncio.sleep(0.45)
+        print("\nGPIO scan complete; all tested pins restored to input mode")
 
     async def read_device_info(self):
         try:
@@ -692,8 +703,8 @@ async def amain(args):
             await s.watch_gpio(args.gpio_watch)
             return
 
-        if args.test_p05:
-            await s.test_p05()
+        if args.gpio_scan:
+            await s.gpio_scan(args.gpio_scan_hold)
             return
 
         await s.start_notify()
@@ -741,18 +752,25 @@ def main():
         help="watch the read-only D0FF/FFD5 GPIO DATAIN snapshot (default: 15s)",
     )
     p.add_argument(
-        "--test-p05",
+        "--gpio-scan",
         action="store_true",
-        help="briefly test only P0_5, then restore input mode",
+        help="sequentially test only whitelisted candidate GPIOs, restoring each to input",
+    )
+    p.add_argument(
+        "--gpio-scan-hold",
+        type=float,
+        default=0.6,
+        metavar="SECONDS",
+        help="LOW/HIGH hold time per candidate during --gpio-scan (default: 0.6)",
     )
     p.add_argument("--flash", action="store_true", help="perform DFU (writes flash)")
     p.add_argument("--yes", action="store_true", help="required acknowledgement for --flash")
     args = p.parse_args()
 
-    if args.gpio_watch is not None and (args.enter_ota or args.enter_ota_flash or args.flash or args.image or args.test_p05):
-        p.error("--gpio-watch cannot be combined with OTA/flash/image/test options")
-    if args.test_p05 and (args.enter_ota or args.enter_ota_flash or args.flash or args.image):
-        p.error("--test-p05 cannot be combined with OTA/flash/image options")
+    if args.gpio_watch is not None and (args.enter_ota or args.enter_ota_flash or args.flash or args.image or args.gpio_scan):
+        p.error("--gpio-watch cannot be combined with OTA/flash/image/scan options")
+    if args.gpio_scan and (args.enter_ota or args.enter_ota_flash or args.flash or args.image):
+        p.error("--gpio-scan cannot be combined with OTA/flash/image options")
     if sum(bool(x) for x in (args.enter_ota, args.enter_ota_flash, args.flash)) > 1:
         p.error("--enter-ota, --enter-ota-flash and --flash are mutually exclusive")
     if args.enter_ota and args.image:
