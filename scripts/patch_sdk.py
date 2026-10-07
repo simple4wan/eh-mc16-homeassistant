@@ -43,14 +43,14 @@ flash_map_h.write_text(flash, encoding="utf-8")
 
 text = text.replace(
     '#include "rtl876x_gpio.h"',
-    '#include "rtl876x_gpio.h"\n#include "rtl876x_wdg.h"\nextern void EHHomeKitStart(void);\nextern void EHHomeKitFactoryReset(void);\nextern void EHHomeKitOutletStateChanged(void);',
+    '#include "rtl876x_gpio.h"\n#include "rtl876x_wdg.h"\n#include "platform_utils.h"\nextern void EHHomeKitStart(void);\nextern void EHHomeKitFactoryReset(void);\nextern void EHHomeKitOutletStateChanged(void);',
     1,
 )
 
 # Insert plug state + long-press factory-reset state machine before BLE setup.
 text = text.replace(
     """uint8_t g_ota_mode;\nuint8_t g_keystatus;\n""",
-    """uint8_t g_ota_mode;\nuint8_t g_keystatus;\n\nstatic bool eh_plug_on = false;\nstatic bool eh_reset_warning = false;\nstatic bool eh_reset_done = false;\nstatic bool eh_flash_phase = false;\nstatic void *eh_reset_warn_timer;\nstatic void *eh_reset_commit_timer;\nstatic void *eh_reset_flash_timer;\nstatic void *eh_boot_diag_timer;\nstatic volatile uint8_t eh_boot_stage = 0;\nstatic volatile bool eh_boot_fatal = false;\nstatic uint8_t eh_boot_phase = 0;\nstatic bool eh_boot_diag_started = false;\n\nstatic void eh_led_show_state(void)\n{\n    if (eh_plug_on)\n    {\n        GPIO_ResetBits(GPIO_GetPin(P2_2));\n        GPIO_SetBits(GPIO_GetPin(P2_3));\n    }\n    else\n    {\n        GPIO_SetBits(GPIO_GetPin(P2_2));\n        GPIO_ResetBits(GPIO_GetPin(P2_3));\n    }\n}\n\nstatic void eh_plug_set(bool on)\n{\n    eh_plug_on = on;\n    if (on)\n    {\n        GPIO_SetBits(GPIO_GetPin(P2_5));\n    }\n    else\n    {\n        GPIO_ResetBits(GPIO_GetPin(P2_5));\n    }\n    eh_led_show_state();\n    EHHomeKitOutletStateChanged();\n}\n\nbool EHHomeKitOutletGetOn(void)\n{\n    return eh_plug_on;\n}\n\nvoid EHHomeKitOutletSetOn(bool on)\n{\n    eh_plug_set(on);\n}\n\n/* This hook will erase only the HomeKit pairing/KV area once the HAP\n   persistent store is wired in. Keeping it isolated prevents OTA metadata\n   from ever being erased by a HomeKit factory reset. */\nstatic void eh_homekit_factory_reset(void)\n{\n    EHHomeKitFactoryReset();\n}\n\nstatic void eh_boot_diag_cb(void *timer)\n{\n    (void) timer;\n    uint8_t stage = eh_boot_stage;\n    if (stage < 1) stage = 1;\n    if (stage > 9) stage = 9;\n\n    /* 200 ms ticks, 24 ticks per cycle. Blink the stage number, then pause.\n       Red pulses = normal progress/hang. Blue pulses = HAPFatalError/abort. */\n    bool pulse = (eh_boot_phase < (uint8_t)(stage * 2)) && ((eh_boot_phase & 1u) == 0);\n    if (pulse)\n    {\n        if (eh_boot_fatal)\n        {\n            GPIO_ResetBits(GPIO_GetPin(P2_2));\n            GPIO_SetBits(GPIO_GetPin(P2_3));\n        }\n        else\n        {\n            GPIO_SetBits(GPIO_GetPin(P2_2));\n            GPIO_ResetBits(GPIO_GetPin(P2_3));\n        }\n    }\n    else\n    {\n        GPIO_ResetBits(GPIO_GetPin(P2_2));\n        GPIO_ResetBits(GPIO_GetPin(P2_3));\n    }\n\n    eh_boot_phase++;\n    if (eh_boot_phase >= 24) eh_boot_phase = 0;\n}\n\nstatic void eh_reset_flash_cb(void *timer)\n{\n    (void) timer;\n    eh_flash_phase = !eh_flash_phase;\n    if (eh_flash_phase)\n    {\n        GPIO_SetBits(GPIO_GetPin(P2_2));\n        GPIO_ResetBits(GPIO_GetPin(P2_3));\n    }\n    else\n    {\n        GPIO_ResetBits(GPIO_GetPin(P2_2));\n        GPIO_SetBits(GPIO_GetPin(P2_3));\n    }\n}\n\nstatic void eh_reset_warn_cb(void *timer)\n{\n    (void) timer;\n    if (GPIO_ReadInputDataBit(GPIO_GetPin(P3_2)) == 0)\n    {\n        eh_reset_warning = true;\n        eh_flash_phase = false;\n        os_timer_start(&eh_reset_flash_timer);\n    }\n}\n\nstatic void eh_reset_commit_cb(void *timer)\n{\n    (void) timer;\n    if (GPIO_ReadInputDataBit(GPIO_GetPin(P3_2)) == 0)\n    {\n        eh_reset_done = true;\n        os_timer_stop(&eh_reset_flash_timer);\n        eh_plug_set(false);\n        eh_homekit_factory_reset();\n        WDG_SystemReset(RESET_ALL, (T_SW_RESET_REASON) 0xE1);\n    }\n}\n""",
+    """uint8_t g_ota_mode;\nuint8_t g_keystatus;\n\nstatic bool eh_plug_on = false;\nstatic bool eh_reset_warning = false;\nstatic bool eh_reset_done = false;\nstatic bool eh_flash_phase = false;\nstatic void *eh_reset_warn_timer;\nstatic void *eh_reset_commit_timer;\nstatic void *eh_reset_flash_timer;\nstatic volatile uint8_t eh_boot_stage = 0;\n\nstatic void eh_led_show_state(void)\n{\n    if (eh_plug_on)\n    {\n        GPIO_ResetBits(GPIO_GetPin(P2_2));\n        GPIO_SetBits(GPIO_GetPin(P2_3));\n    }\n    else\n    {\n        GPIO_SetBits(GPIO_GetPin(P2_2));\n        GPIO_ResetBits(GPIO_GetPin(P2_3));\n    }\n}\n\nstatic void eh_plug_set(bool on)\n{\n    eh_plug_on = on;\n    if (on)\n    {\n        GPIO_SetBits(GPIO_GetPin(P2_5));\n    }\n    else\n    {\n        GPIO_ResetBits(GPIO_GetPin(P2_5));\n    }\n    eh_led_show_state();\n    EHHomeKitOutletStateChanged();\n}\n\nbool EHHomeKitOutletGetOn(void)\n{\n    return eh_plug_on;\n}\n\nvoid EHHomeKitOutletSetOn(bool on)\n{\n    eh_plug_set(on);\n}\n\n/* This hook will erase only the HomeKit pairing/KV area once the HAP\n   persistent store is wired in. Keeping it isolated prevents OTA metadata\n   from ever being erased by a HomeKit factory reset. */\nstatic void eh_homekit_factory_reset(void)\n{\n    EHHomeKitFactoryReset();\n}\n\nstatic void eh_reset_flash_cb(void *timer)\n{\n    (void) timer;\n    eh_flash_phase = !eh_flash_phase;\n    if (eh_flash_phase)\n    {\n        GPIO_SetBits(GPIO_GetPin(P2_2));\n        GPIO_ResetBits(GPIO_GetPin(P2_3));\n    }\n    else\n    {\n        GPIO_ResetBits(GPIO_GetPin(P2_2));\n        GPIO_SetBits(GPIO_GetPin(P2_3));\n    }\n}\n\nstatic void eh_reset_warn_cb(void *timer)\n{\n    (void) timer;\n    if (GPIO_ReadInputDataBit(GPIO_GetPin(P3_2)) == 0)\n    {\n        eh_reset_warning = true;\n        eh_flash_phase = false;\n        os_timer_start(&eh_reset_flash_timer);\n    }\n}\n\nstatic void eh_reset_commit_cb(void *timer)\n{\n    (void) timer;\n    if (GPIO_ReadInputDataBit(GPIO_GetPin(P3_2)) == 0)\n    {\n        eh_reset_done = true;\n        os_timer_stop(&eh_reset_flash_timer);\n        eh_plug_set(false);\n        eh_homekit_factory_reset();\n        WDG_SystemReset(RESET_ALL, (T_SW_RESET_REASON) 0xE1);\n    }\n}\n""",
     1,
 )
 
@@ -231,7 +231,6 @@ text = re.sub(
     os_timer_create(&eh_reset_warn_timer, "ehResetWarn", 2, 7000, false, eh_reset_warn_cb);
     os_timer_create(&eh_reset_commit_timer, "ehResetCommit", 3, 10000, false, eh_reset_commit_cb);
     os_timer_create(&eh_reset_flash_timer, "ehResetFlash", 4, 250, true, eh_reset_flash_cb);
-    os_timer_create(&eh_boot_diag_timer, "ehBootDiag", 5, 200, true, eh_boot_diag_cb);
 }""",
     text,
     count=1,
@@ -252,23 +251,53 @@ text = text.replace(
     _boot_anchor + """void EHBootMark(uint8_t stage)
 {
     eh_boot_stage = stage;
-    eh_boot_fatal = false;
-    eh_boot_phase = 0;
-    if (!eh_boot_diag_started && eh_boot_diag_timer)
+
+    /* Diagnostic build: synchronous red stage code.
+       Blink N times, pause, then leave red ON while the next operation runs.
+       Busy delay is intentional here: this must work even if the RTOS timer
+       service is the thing that is broken. */
+    GPIO_ResetBits(GPIO_GetPin(P2_2));
+    GPIO_ResetBits(GPIO_GetPin(P2_3));
+    platform_delay_ms(300);
+
+    for (uint8_t i = 0; i < stage; i++)
     {
-        eh_boot_diag_started = true;
-        os_timer_start(&eh_boot_diag_timer);
+        GPIO_SetBits(GPIO_GetPin(P2_2));
+        GPIO_ResetBits(GPIO_GetPin(P2_3));
+        platform_delay_ms(220);
+        GPIO_ResetBits(GPIO_GetPin(P2_2));
+        GPIO_ResetBits(GPIO_GetPin(P2_3));
+        platform_delay_ms(220);
     }
+
+    platform_delay_ms(700);
+    GPIO_SetBits(GPIO_GetPin(P2_2));
+    GPIO_ResetBits(GPIO_GetPin(P2_3));
 }
 
 void EHBootFatal(void)
 {
-    eh_boot_fatal = true;
-    eh_boot_phase = 0;
-    if (!eh_boot_diag_started && eh_boot_diag_timer)
+    uint8_t stage = eh_boot_stage;
+    if (stage < 1) stage = 1;
+    if (stage > 9) stage = 9;
+
+    /* Fatal path: repeat BLUE stage code forever. */
+    for (;;)
     {
-        eh_boot_diag_started = true;
-        os_timer_start(&eh_boot_diag_timer);
+        GPIO_ResetBits(GPIO_GetPin(P2_2));
+        GPIO_ResetBits(GPIO_GetPin(P2_3));
+        platform_delay_ms(500);
+
+        for (uint8_t i = 0; i < stage; i++)
+        {
+            GPIO_ResetBits(GPIO_GetPin(P2_2));
+            GPIO_SetBits(GPIO_GetPin(P2_3));
+            platform_delay_ms(220);
+            GPIO_ResetBits(GPIO_GetPin(P2_2));
+            GPIO_ResetBits(GPIO_GetPin(P2_3));
+            platform_delay_ms(220);
+        }
+        platform_delay_ms(1200);
     }
 }
 
@@ -278,8 +307,8 @@ void EHBootFatal(void)
 
 if "void EHBootMark(uint8_t stage)" not in text or "void EHBootFatal(void)" not in text:
     raise SystemExit("boot diagnostic hooks missing from main.c")
-if "eh_boot_diag_cb" not in text:
-    raise SystemExit("boot diagnostic timer callback missing from main.c")
+if "platform_delay_ms(220)" not in text:
+    raise SystemExit("synchronous boot diagnostic pulses missing from main.c")
 main_c.write_text(text, encoding="utf-8")
 
 
