@@ -13,10 +13,16 @@ ota_service_c = sdk / "src/ble/profile/server/ota_service.c"
 
 text = main_c.read_text(encoding="utf-8")
 
-# Insert the minimal plug state machine before BLE setup.
+text = text.replace(
+    '#include "rtl876x_gpio.h"',
+    '#include "rtl876x_gpio.h"\n#include "rtl876x_wdg.h"',
+    1,
+)
+
+# Insert plug state + long-press factory-reset state machine before BLE setup.
 text = text.replace(
     """uint8_t g_ota_mode;\nuint8_t g_keystatus;\n""",
-    """uint8_t g_ota_mode;\nuint8_t g_keystatus;\n\nstatic bool eh_plug_on = false;\n\nstatic void eh_plug_set(bool on)\n{\n    eh_plug_on = on;\n    if (on)\n    {\n        GPIO_SetBits(GPIO_GetPin(P2_5));\n        GPIO_ResetBits(GPIO_GetPin(P2_2));\n        GPIO_SetBits(GPIO_GetPin(P2_3));\n    }\n    else\n    {\n        GPIO_ResetBits(GPIO_GetPin(P2_5));\n        GPIO_SetBits(GPIO_GetPin(P2_2));\n        GPIO_ResetBits(GPIO_GetPin(P2_3));\n    }\n}\n""",
+    """uint8_t g_ota_mode;\nuint8_t g_keystatus;\n\nstatic bool eh_plug_on = false;\nstatic bool eh_reset_warning = false;\nstatic bool eh_reset_done = false;\nstatic bool eh_flash_phase = false;\nstatic void *eh_reset_warn_timer;\nstatic void *eh_reset_commit_timer;\nstatic void *eh_reset_flash_timer;\n\nstatic void eh_led_show_state(void)\n{\n    if (eh_plug_on)\n    {\n        GPIO_ResetBits(GPIO_GetPin(P2_2));\n        GPIO_SetBits(GPIO_GetPin(P2_3));\n    }\n    else\n    {\n        GPIO_SetBits(GPIO_GetPin(P2_2));\n        GPIO_ResetBits(GPIO_GetPin(P2_3));\n    }\n}\n\nstatic void eh_plug_set(bool on)\n{\n    eh_plug_on = on;\n    if (on)\n    {\n        GPIO_SetBits(GPIO_GetPin(P2_5));\n    }\n    else\n    {\n        GPIO_ResetBits(GPIO_GetPin(P2_5));\n    }\n    eh_led_show_state();\n}\n\n/* This hook will erase only the HomeKit pairing/KV area once the HAP\n   persistent store is wired in. Keeping it isolated prevents OTA metadata\n   from ever being erased by a HomeKit factory reset. */\nstatic void eh_homekit_factory_reset(void)\n{\n    /* HAP key-value erase is added by the HomeKit storage port. */\n}\n\nstatic void eh_reset_flash_cb(void *timer)\n{\n    (void) timer;\n    eh_flash_phase = !eh_flash_phase;\n    if (eh_flash_phase)\n    {\n        GPIO_SetBits(GPIO_GetPin(P2_2));\n        GPIO_ResetBits(GPIO_GetPin(P2_3));\n    }\n    else\n    {\n        GPIO_ResetBits(GPIO_GetPin(P2_2));\n        GPIO_SetBits(GPIO_GetPin(P2_3));\n    }\n}\n\nstatic void eh_reset_warn_cb(void *timer)\n{\n    (void) timer;\n    if (GPIO_ReadInputDataBit(GPIO_GetPin(P3_2)) == 0)\n    {\n        eh_reset_warning = true;\n        eh_flash_phase = false;\n        os_timer_start(&eh_reset_flash_timer);\n    }\n}\n\nstatic void eh_reset_commit_cb(void *timer)\n{\n    (void) timer;\n    if (GPIO_ReadInputDataBit(GPIO_GetPin(P3_2)) == 0)\n    {\n        eh_reset_done = true;\n        os_timer_stop(&eh_reset_flash_timer);\n        eh_plug_set(false);\n        eh_homekit_factory_reset();\n        WDG_SystemReset(RESET_ALL, (T_SW_RESET_REASON) 0xE1);\n    }\n}\n""",
     1,
 )
 
@@ -121,32 +127,54 @@ text = re.sub(
     flags=re.S,
 )
 
-# Toggle the outlet once on each button press. Release only rearms the edge.
-text = text.replace(
-    """    g_keystatus = GPIO_ReadInputDataBit(GPIO_GetPin(KEY));
+# Short press toggles on release. Holding 7 s starts red/blue warning;
+# holding 10 s invokes the isolated HomeKit factory-reset hook and reboots.
+text = re.sub(
+    r"void KEY_INT_Handle\(void\).*?\n\}",
+    """void KEY_INT_Handle(void)
+{
+#if SUPPORT_ERASE_SUSPEND
+    app_flash_erase_suspend();
+#endif
+    GPIO_MaskINTConfig(GPIO_GetPin(KEY), ENABLE);
+    g_keystatus = GPIO_ReadInputDataBit(GPIO_GetPin(KEY));
 
     if (g_keystatus == 0)
     {
+        eh_reset_warning = false;
+        eh_reset_done = false;
         GPIO->INTPOLARITY |= GPIO_GetPin(KEY);
+        os_timer_start(&eh_reset_warn_timer);
+        os_timer_start(&eh_reset_commit_timer);
     }
     else
     {
         GPIO->INTPOLARITY &= ~GPIO_GetPin(KEY);
-    }
-""",
-    """    g_keystatus = GPIO_ReadInputDataBit(GPIO_GetPin(KEY));
+        os_timer_stop(&eh_reset_warn_timer);
+        os_timer_stop(&eh_reset_commit_timer);
+        os_timer_stop(&eh_reset_flash_timer);
 
-    if (g_keystatus == 0)
-    {
-        eh_plug_set(!eh_plug_on);
-        GPIO->INTPOLARITY |= GPIO_GetPin(KEY);
+        if (!eh_reset_warning && !eh_reset_done)
+        {
+            eh_plug_set(!eh_plug_on);
+        }
+        else if (!eh_reset_done)
+        {
+            /* Released between 7 s and 10 s: cancel reset and restore LED. */
+            eh_led_show_state();
+        }
+        eh_reset_warning = false;
     }
-    else
-    {
-        GPIO->INTPOLARITY &= ~GPIO_GetPin(KEY);
-    }
-""",
-    1,
+
+    GPIO_ClearINTPendingBit(GPIO_GetPin(KEY));
+    GPIO_MaskINTConfig(GPIO_GetPin(KEY), DISABLE);
+#if SUPPORT_ERASE_SUSPEND
+    app_flash_erase_resume();
+#endif
+}""",
+    text,
+    count=1,
+    flags=re.S,
 )
 
 # Avoid enabling the sample's low-power GPIO callbacks, which reference EVB pins.
@@ -154,6 +182,29 @@ text = text.replace(
     "#define DLPS_EN               1",
     "#define DLPS_EN               0",
 ) if False else text
+
+# Add the 7 s warning, 10 s commit, and 250 ms LED warning timers.
+text = re.sub(
+    r"void sw_timer_init\(void\)\n\{.*?\n\}",
+    """void sw_timer_init(void)
+{
+#if (AON_WDG_ENABLE == 1)
+    bool retval = os_timer_create(&xTimerPeriodWakeupDlps, "xTimerPeriodWakeupDlps", 1,
+                                  TIMER_WAKEUP_DLPS_PERIOD, true, vTimerPeriodWakeupDlpsCallback);
+    if (retval)
+    {
+        os_timer_start(&xTimerPeriodWakeupDlps);
+    }
+#endif
+
+    os_timer_create(&eh_reset_warn_timer, "ehResetWarn", 2, 7000, false, eh_reset_warn_cb);
+    os_timer_create(&eh_reset_commit_timer, "ehResetCommit", 3, 10000, false, eh_reset_commit_cb);
+    os_timer_create(&eh_reset_flash_timer, "ehResetFlash", 4, 250, true, eh_reset_flash_cb);
+}""",
+    text,
+    count=1,
+    flags=re.S,
+)
 
 main_c.write_text(text, encoding="utf-8")
 
@@ -307,7 +358,7 @@ ota_service_c.write_text(otext, encoding="utf-8")
 print(f"patched {main_c}")
 print(f"patched {board_h}")
 print("device_name=EH-MC16-TEST")
-print("EH-MC16 plug GPIOs configured: button P3_2, relay P2_5, LED P2_2/P2_3")
+print("EH-MC16 plug GPIOs configured: button P3_2, relay P2_5, LED P2_2/P2_3")\nprint("button behavior: short press toggles; 7s warning; 10s HomeKit reset hook + reboot")
 print("DFU buffer-check forced enabled")
 print("DLPS GPIO callbacks disabled")
 print("D0FF/FFD5 exposes read-only GPIO DATAIN snapshot")
