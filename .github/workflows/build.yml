@@ -57,6 +57,19 @@ jobs:
             -Ihomekit-adk/PAL \
             homekit/app/DB.c homekit/app/App.c
 
+      - name: Syntax-check Bee2 HAP clock timer random PAL
+        run: |
+          arm-none-eabi-gcc -std=gnu11 -fsyntax-only \
+            -D__has_feature\(x\)=0 \
+            -Ihomekit-adk/HAP \
+            -Ihomekit-adk/PAL \
+            -Ibee2-sdk/inc \
+            -Ibee2-sdk/inc/os \
+            -Ibee2-sdk/inc/platform \
+            homekit/bee2/HAPPlatformClock.c \
+            homekit/bee2/HAPPlatformTimer.c \
+            homekit/bee2/HAPPlatformRandomNumber.c
+
       - name: Prepare Linux build tools
         run: |
           chmod +x bee2-sdk/tool/memory_icf/MemDefine || true
