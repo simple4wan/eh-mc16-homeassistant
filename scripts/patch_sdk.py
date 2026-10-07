@@ -56,14 +56,6 @@ text = text.replace(
 # Reserve service slots for the 4 legacy OTA services plus the HAP database.
 text = text.replace("server_init(4);", "server_init(12);", 1)
 
-# Register HAP services before the Bee2 stack starts. Advertising itself is
-# deferred until GAP_INIT_STATE_STACK_READY by the BLE PAL.
-text = text.replace(
-    "    app_le_profile_init();\n    pwr_mgr_init();",
-    "    app_le_profile_init();\n    EHHomeKitStart();\n    pwr_mgr_init();",
-    1,
-)
-
 # Give the recovery test a unique, obvious BLE name.
 text = text.replace(
     'uint8_t  device_name[GAP_DEVICE_NAME_LEN] = "RealTekDfu";',
@@ -245,6 +237,36 @@ text = re.sub(
 )
 
 main_c.write_text(text, encoding="utf-8")
+
+
+# Start HAP from the live Bee2 app task, after its queues exist but before
+# gap_start_bt_stack(). HAPAccessoryServerStart schedules run-loop work
+# immediately; doing this in main() was too early because io_queue_handle /
+# evt_queue_handle had not been created yet.
+atext = app_task_c.read_text(encoding="utf-8")
+if "extern void EHHomeKitStart(void);" not in atext:
+    atext = atext.replace(
+        '#include "otp_config.h"',
+        '#include "otp_config.h"\nextern void EHHomeKitStart(void);',
+        1,
+    )
+atext = atext.replace(
+    """    os_msg_queue_create(&evt_queue_handle, MAX_NUMBER_OF_EVENT_MESSAGE, sizeof(uint8_t));
+
+    gap_start_bt_stack(evt_queue_handle, io_queue_handle, MAX_NUMBER_OF_GAP_MESSAGE);
+""",
+    """    os_msg_queue_create(&evt_queue_handle, MAX_NUMBER_OF_EVENT_MESSAGE, sizeof(uint8_t));
+
+    /* HAP may schedule run-loop callbacks immediately during startup, so the
+       Bee2 queues must already exist. Register HAP GATT services before the
+       Bluetooth stack is started. */
+    EHHomeKitStart();
+
+    gap_start_bt_stack(evt_queue_handle, io_queue_handle, MAX_NUMBER_OF_GAP_MESSAGE);
+""",
+    1,
+)
+app_task_c.write_text(atext, encoding="utf-8")
 
 # Route HAP run-loop callbacks through the existing Bee2 app task.
 dtext = dfu_application_c.read_text(encoding="utf-8")
