@@ -250,7 +250,6 @@ new_test_write = """    else if (BLE_SERVICE_CHAR_TEST_MODE_INDEX == attrib_inde
         }
     }
 """
-"""
 if old_test_write not in otext:
     raise SystemExit("expected TEST_MODE write handler not found")
 otext = otext.replace(old_test_write, new_test_write, 1)
