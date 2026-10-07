@@ -130,6 +130,32 @@ class DfuSession:
         print(f"AppPatch target info: version={version!r}, offset={offset!r}")
         return rsp
 
+    async def probe_buffer_check(self):
+        print("probing buffer-check capability...")
+        try:
+            rsp = await self.command(bytes([OP_BUFFER_CHECK]), timeout=5.0)
+        except asyncio.TimeoutError:
+            print("buffer-check: no notification (likely unsupported by this firmware)")
+            return None
+
+        if len(rsp) < 3:
+            print(f"buffer-check: short response: {rsp.hex(' ')}")
+            return rsp
+
+        # Realtek response:
+        # 10 09 <support/status> [max_buffer_le16] [mtu_le16]
+        support = rsp[2]
+        if len(rsp) >= 7:
+            max_buffer = struct.unpack_from("<H", rsp, 3)[0]
+            mtu = struct.unpack_from("<H", rsp, 5)[0]
+            print(
+                f"buffer-check: support/status=0x{support:02X}, "
+                f"max_buffer={max_buffer}, mtu={mtu}"
+            )
+        else:
+            print(f"buffer-check: response={rsp.hex(' ')}")
+        return rsp
+
     async def flash(self, image: bytes):
         h = validate_app_patch(image)
         image_id = h["image_id"]
@@ -343,6 +369,7 @@ async def amain(args):
 
         if not args.flash:
             await s.probe()
+            await s.probe_buffer_check()
             print("probe complete; no flash writes were performed")
             return
 
