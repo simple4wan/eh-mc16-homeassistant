@@ -178,18 +178,50 @@ class DfuSession:
 async def find_target(name: str | None, address: str | None):
     if address:
         return address
+
     print("Scanning for BLE devices...")
-    devices = await BleakScanner.discover(timeout=8.0)
-    matches = [d for d in devices if d.name and (not name or name.lower() in d.name.lower())]
+    found: dict[str, tuple[object, str]] = {}
+
+    def on_detect(device, adv):
+        local_name = getattr(adv, "local_name", None) or getattr(device, "name", None) or ""
+        found[str(device.address)] = (device, local_name)
+
+    scanner = BleakScanner(detection_callback=on_detect)
+    await scanner.start()
+    await asyncio.sleep(10.0)
+    await scanner.stop()
+
+    if not found:
+        raise RuntimeError(
+            "no BLE advertisements were seen at all; check macOS Bluetooth permission "
+            "for Terminal/Python and make sure the device is not still connected to the phone"
+        )
+
+    needle = (name or "").lower()
+    matches = []
+    for device, local_name in found.values():
+        dev_name = getattr(device, "name", None) or ""
+        hay = f"{local_name} {dev_name}".lower()
+        if not needle or needle in hay:
+            matches.append((device, local_name))
+
     if not matches:
-        raise RuntimeError("no matching BLE device found; pass --address explicitly")
+        print("No matching name. Nearby BLE advertisements:")
+        for device, local_name in sorted(found.values(), key=lambda x: (x[1] or "", str(x[0].address))):
+            print(f"  {device.address}  local_name={local_name!r}  device_name={getattr(device, 'name', None)!r}")
+        raise RuntimeError(
+            f"no device matched {name!r}; on macOS use the CoreBluetooth UUID shown above with --address"
+        )
+
     if len(matches) > 1:
         print("Multiple matches:")
-        for d in matches:
-            print(f"  {d.address}  {d.name}")
+        for device, local_name in matches:
+            print(f"  {device.address}  {local_name or getattr(device, 'name', None)}")
         raise RuntimeError("multiple devices matched; pass --address")
-    print(f"Found {matches[0].address}  {matches[0].name}")
-    return matches[0].address
+
+    device, local_name = matches[0]
+    print(f"Found {device.address}  {local_name or getattr(device, 'name', None)}")
+    return device.address
 
 
 async def amain(args):
