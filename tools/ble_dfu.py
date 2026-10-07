@@ -597,7 +597,7 @@ async def find_beetgt_after_reboot(timeout: float = 30.0):
                 or (DFU_SERVICE.lower() in service_uuids and 0x005D in mfg)
             ):
                 print(f"Found OTA target {device.address}  {local_name or dev_name or 'BeeTgt'}")
-                return device.address
+                return device
 
         # CoreBluetooth on macOS sometimes omits the OTA target's local name,
         # manufacturer data and advertised service UUIDs after the reboot.
@@ -639,7 +639,7 @@ async def find_beetgt_after_reboot(timeout: float = 30.0):
                     is_app = OTA_SERVICE.lower() in uuids
                     if is_dfu and not is_app:
                         print(" BeeTgt DFU service found")
-                        return address
+                        return device
                     print(" not OTA target")
             except Exception:
                 print(" unavailable")
@@ -653,9 +653,6 @@ async def find_beetgt_after_reboot(timeout: float = 30.0):
 
 
 async def find_target(name: str | None, address: str | None):
-    if address:
-        return address
-
     print("Scanning for BLE devices...")
     found: dict[str, tuple[object, object]] = {}
 
@@ -672,6 +669,15 @@ async def find_target(name: str | None, address: str | None):
             "no BLE advertisements were seen at all; check macOS Bluetooth permission "
             "for Terminal/Python and make sure the device is not still connected to the phone"
         )
+
+    if address:
+        wanted = address.lower()
+        for device, adv in found.values():
+            if str(device.address).lower() == wanted:
+                local_name = getattr(adv, "local_name", None) or getattr(device, "name", None)
+                print(f"Found {device.address}  {local_name or ''}")
+                return device
+        raise RuntimeError(f"device {address} was not seen in the current scan")
 
     needle = (name or "").lower()
     matches = []
@@ -693,7 +699,7 @@ async def find_target(name: str | None, address: str | None):
         device, adv = matches[0]
         local_name = getattr(adv, "local_name", None) or getattr(device, "name", None)
         print(f"Found {device.address}  {local_name}")
-        return device.address
+        return device
 
     if len(matches) > 1:
         print("Multiple name matches:")
@@ -705,7 +711,7 @@ async def find_target(name: str | None, address: str | None):
     if len(dfu_advertised) == 1:
         device, adv = dfu_advertised[0]
         print(f"Found DFU service in advertisement: {device.address}")
-        return device.address
+        return device
 
     # EH-MC16 may advertise without a local name on macOS. In that case,
     # probe only unnamed devices by connecting and checking discovered GATT services.
@@ -725,7 +731,7 @@ async def find_target(name: str | None, address: str | None):
                     uuids = {str(s.uuid).lower() for s in probe_client.services}
                     if DFU_SERVICE.lower() in uuids:
                         print("  <-- EH-MC16 DFU service found")
-                        return device.address
+                        return device
                     print("  no")
             except Exception:
                 print("  unavailable")
