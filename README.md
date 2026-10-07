@@ -46,3 +46,29 @@ python tools/ble_dfu.py --name EH-MC16
 The default mode is probe-only and does not write firmware. It verifies the Bee2 DFU service, reads `ic_type`, and queries AppPatch target info.
 
 Firmware flashing is intentionally gated behind both `--flash` and `--yes`. Do not use it yet until the generated image and target-specific DFU behavior have been validated further.
+
+## Confirmed EH-MC16 hardware map
+
+Hardware probing on the target smart plug established the following GPIO mapping:
+
+- Button: `P3_2` (active low)
+- Relay: `P2_5` (`HIGH = outlet ON`, `LOW = outlet OFF`)
+- Two-color LED:
+  - `P2_2 = HIGH, P2_3 = LOW` -> red
+  - `P2_2 = LOW, P2_3 = HIGH` -> blue
+
+The current firmware now boots with the outlet OFF / LED red and toggles the relay + LED on each physical button press.
+
+## Native HomeKit direction
+
+The next target is native HAP over Bluetooth LE, without Home Assistant or Wi-Fi.
+
+For the HAP implementation, use Apple's open-source HomeKit ADK for non-commercial prototyping instead of reimplementing HAP crypto and pairing from scratch.
+
+Pinned upstream:
+
+- Repository: `apple/HomeKitADK`
+- Commit: `fb201f98f5fdc7fef6a455054f08b59cca5d1ec8`
+
+The existing Realtek Bee2 BLE/OTA stack remains the hardware transport foundation. The port needs to provide the HomeKit ADK platform layer for BLE GATT, persistent key-value storage, random numbers, clock/timers, and run-loop integration while preserving the verified Bee2 OTA path.
+
