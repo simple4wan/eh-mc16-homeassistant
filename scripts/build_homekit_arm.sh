@@ -17,7 +17,16 @@ AR="${AR:-arm-none-eabi-ar}"
 
 MCU_FLAGS="-mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard"
 COMMON_FLAGS="$MCU_FLAGS -Os -std=gnu11 -ffunction-sections -fdata-sections -fno-strict-aliasing"
-DEFS="-D__has_feature\\(x\\)=0 -DBLE=1 -DIP=0 -DHAP_ENABLE_DEVELOPMENT_ONLY_CODE=1 -DHAP_LOG_LEVEL=0"
+DEFS=(
+  '-D__has_feature(x)=0'
+  '-D_Nullable='
+  '-D_Nonnull='
+  '-D_Null_unspecified='
+  '-DBLE=1'
+  '-DIP=0'
+  '-DHAP_ENABLE_DEVELOPMENT_ONLY_CODE=1'
+  '-DHAP_LOG_LEVEL=0'
+)
 
 INCLUDES=(
   "-I$ADK/HAP"
@@ -71,7 +80,7 @@ idx=0
 for src in "${sources[@]}"; do
   obj="$OUT/obj/$(printf '%04d' "$idx").o"
   echo "[homekit] CC ${src#$PWD/}"
-  "$CC" $COMMON_FLAGS $DEFS "${INCLUDES[@]}" -c "$src" -o "$obj"
+  "$CC" $COMMON_FLAGS "${DEFS[@]}" "${INCLUDES[@]}" -c "$src" -o "$obj"
   objects+=("$obj")
   idx=$((idx + 1))
 done
