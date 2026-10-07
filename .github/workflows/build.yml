@@ -111,6 +111,10 @@ jobs:
             -Ibee2-sdk/inc/app \
             -Ibee2-sdk/inc/os \
             -Ibee2-sdk/inc/platform \
+            -Ibee2-sdk/inc/bluetooth \
+            -Ibee2-sdk/inc/bluetooth/gap \
+            -Ibee2-sdk/inc/bluetooth/profile \
+            -Ibee2-sdk/inc/bluetooth/profile/server \
             homekit/bee2/HomeKitBootstrap.c
 
       - name: Syntax-check HomeKit Mbed TLS crypto PAL
