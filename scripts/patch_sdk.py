@@ -87,6 +87,7 @@ text = re.sub(
     g_keystatus = 1;
 
     /* Configure candidate module pins strictly as GPIO inputs. */
+    RCC_PeriphClockCmd(APBPeriph_GPIO, APBPeriph_GPIO_CLOCK, ENABLE);
     GPIO_InitTypeDef gpio;
     GPIO_StructInit(&gpio);
     gpio.GPIO_Pin =
