@@ -5,6 +5,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: eh-mc16-homekit-main
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-22.04
