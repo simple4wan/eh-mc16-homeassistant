@@ -11,6 +11,7 @@ main_c = sdk / "src/app/silent_ota/main.c"
 board_h = sdk / "board/evb/silent_ota_gcc/board.h"
 ota_service_c = sdk / "src/ble/profile/server/ota_service.c"
 dfu_application_c = sdk / "src/app/silent_ota/dfu_application.c"
+app_task_c = sdk / "src/app/silent_ota/app_task.c"
 flash_map_h = sdk / "board/evb/silent_ota_gcc/flash_map.h"
 
 text = main_c.read_text(encoding="utf-8")
