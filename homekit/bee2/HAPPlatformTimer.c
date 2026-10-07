@@ -7,6 +7,8 @@
 #include <stdint.h>
 #include <string.h>
 
+extern void EHBootTrace(uint8_t code);
+
 #define EH_HAP_MAX_TIMERS 12
 
 typedef struct {
@@ -65,6 +67,7 @@ HAPError HAPPlatformTimerRegister(
         HAPTime deadline,
         HAPPlatformTimerCallback callback,
         void* context) {
+    EHBootTrace(1); /* timer register entered */
     if (!timer || !callback) return kHAPError_OutOfResources;
 
     uintptr_t slot;
@@ -101,6 +104,7 @@ HAPError HAPPlatformTimerRegister(
     }
 
     *timer = slot + 1;
+    EHBootTrace(2); /* timer register completed */
     return kHAPError_None;
 }
 
