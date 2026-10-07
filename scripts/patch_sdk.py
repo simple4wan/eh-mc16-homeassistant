@@ -121,9 +121,6 @@ text = re.sub(
     flags=re.S,
 )
 
-    flags=re.S,
-)
-
 # Toggle the outlet once on each button press. Release only rearms the edge.
 text = text.replace(
     """    g_keystatus = GPIO_ReadInputDataBit(GPIO_GetPin(KEY));
