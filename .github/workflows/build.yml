@@ -175,7 +175,19 @@ jobs:
         working-directory: bee2-sdk/board/evb/silent_ota_gcc
         run: |
           make clean || true
+          set +e
           make V=1
+          rc=$?
+          if [ "$rc" -ne 0 ]; then
+            if [ -f build/silent_ota.map ]; then
+              python3 ../../../../scripts/map_sizes.py build/silent_ota.map || true
+            fi
+            echo "== largest HomeKit symbols =="
+            arm-none-eabi-nm -S --size-sort ../../../bin/homekit.a | tail -80 || true
+            echo "== largest Mbed TLS crypto symbols =="
+            arm-none-eabi-nm -S --size-sort ../../../bin/libmbedcrypto.a | tail -80 || true
+            exit "$rc"
+          fi
 
       - name: Verify HomeKit symbols are linked
         run: |
