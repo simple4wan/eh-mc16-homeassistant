@@ -245,6 +245,16 @@ main_c.write_text(text, encoding="utf-8")
 # immediately; doing this in main() was too early because io_queue_handle /
 # evt_queue_handle had not been created yet.
 atext = app_task_c.read_text(encoding="utf-8")
+
+# Increase Bee2 app task stack for HomeKit. The stock silent_ota sample uses
+# only 2 KiB, which is too small for the synchronous HAP startup call chain
+# and can fault before gap_start_bt_stack(), producing no BLE advertisement.
+atext = atext.replace(
+    "#define APP_TASK_STACK_SIZE             512 * 4",
+    "#define APP_TASK_STACK_SIZE             4096 * 4",
+    1,
+)
+
 if "extern void EHHomeKitStart(void);" not in atext:
     atext = atext.replace(
         '#include "otp_config.h"',
