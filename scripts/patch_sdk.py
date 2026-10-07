@@ -237,6 +237,39 @@ text = re.sub(
     flags=re.S,
 )
 
+# Add deterministic boot-stage LED marker used by app_task.c.
+_boot_anchor = """bool EHHomeKitOutletGetOn(void)
+{
+    return eh_plug_on;
+}
+
+"""
+if _boot_anchor not in text:
+    raise SystemExit("expected EHHomeKitOutletGetOn block for boot marker")
+text = text.replace(
+    _boot_anchor,
+    _boot_anchor + """void EHBootMark(uint8_t stage)
+{
+    /* 1 = red: app task / GPIO alive, about to enter HAP.
+       2 = blue: EHHomeKitStart returned. */
+    if (stage == 1)
+    {
+        GPIO_SetBits(GPIO_GetPin(P2_2));
+        GPIO_ResetBits(GPIO_GetPin(P2_3));
+    }
+    else if (stage == 2)
+    {
+        GPIO_ResetBits(GPIO_GetPin(P2_2));
+        GPIO_SetBits(GPIO_GetPin(P2_3));
+    }
+}
+
+""",
+    1,
+)
+
+if "void EHBootMark(uint8_t stage)" not in text:
+    raise SystemExit("boot breadcrumb patch missing from main.c")
 main_c.write_text(text, encoding="utf-8")
 
 
@@ -251,7 +284,7 @@ atext = app_task_c.read_text(encoding="utf-8")
 # and can fault before gap_start_bt_stack(), producing no BLE advertisement.
 atext = atext.replace(
     "#define APP_TASK_STACK_SIZE             512 * 4",
-    "#define APP_TASK_STACK_SIZE             4096 * 4",
+    "#define APP_TASK_STACK_SIZE             2048 * 4",
     1,
 )
 
@@ -283,6 +316,10 @@ atext = atext.replace(
 """,
     1,
 )
+if "EHBootMark(1)" not in atext or "EHBootMark(2)" not in atext:
+    raise SystemExit("boot breadcrumb calls missing from app_task.c")
+if atext.count("driver_init();") != 1:
+    raise SystemExit(f"expected exactly one driver_init() in app_task.c, got {atext.count('driver_init();')}")
 app_task_c.write_text(atext, encoding="utf-8")
 
 # Route HAP run-loop callbacks through the existing Bee2 app task.
