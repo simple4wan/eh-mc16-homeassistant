@@ -138,6 +138,8 @@ jobs:
             -Ihomekit-adk/PAL \
             -Ibee2-sdk/inc \
             -Ibee2-sdk/inc/peripheral \
+            -Ibee2-sdk/inc/platform \
+            -Ibee2-sdk/inc/platform/cmsis \
             homekit/bee2/HAPPlatformLog.c \
             homekit/bee2/HAPPlatformAbort.c
 
