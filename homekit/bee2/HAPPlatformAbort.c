@@ -1,8 +1,12 @@
 #include "HAPPlatformAbort.h"
-#include <rtl876x_wdg.h>
+
+extern void EHBootFatal(void);
 
 HAP_NORETURN
 void HAPPlatformAbort(void) {
-    WDG_SystemReset(RESET_ALL, (T_SW_RESET_REASON) 0xE2);
+    /* Diagnostic build: keep the current HomeKit stage visible instead of
+       instantly resetting and losing the failure location. The timer service
+       keeps running and EHBootFatal switches the stage pulses to blue. */
+    EHBootFatal();
     for (;;) {}
 }
