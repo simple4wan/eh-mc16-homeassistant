@@ -16,10 +16,12 @@ import sys
 from pathlib import Path
 
 from bleak import BleakClient, BleakScanner
+from Crypto.Cipher import AES
 
 DFU_SERVICE = "00006287-3c17-d293-8e48-14fe2e4da212"
 DFU_DATA = "00006387-3c17-d293-8e48-14fe2e4da212"
 DFU_CTRL = "00006487-3c17-d293-8e48-14fe2e4da212"
+OTA_DEVICE_INFO = "0000fff1-3c17-d293-8e48-14fe2e4da212"
 
 OP_START = 0x01
 OP_IMAGE_INFO = 0x02
@@ -38,6 +40,14 @@ APP_PATCH_ID = 0x2793
 MP_HEADER_SIZE = 512
 CTRL_HEADER_SIZE = 12
 IMAGE_HEADER_SIZE = 1024
+
+# Realtek reference OTA-client default AES-256 key.
+DEFAULT_AES_KEY = bytes([
+    0x4E, 0x46, 0xF8, 0xC5, 0x09, 0x2B, 0x29, 0xE2,
+    0x9A, 0x97, 0x1A, 0x0C, 0xD1, 0xF6, 0x10, 0xFB,
+    0x1F, 0x67, 0x63, 0xDF, 0x80, 0x7A, 0x7E, 0x70,
+    0x96, 0x0D, 0x4C, 0xD3, 0x11, 0x8E, 0x60, 0x1A,
+])
 
 
 def load_image(path: Path) -> tuple[bytes, int]:
@@ -103,6 +113,46 @@ class DfuSession:
             rsp = await asyncio.wait_for(self.queue.get(), timeout)
             if len(rsp) >= 3 and rsp[0] == OP_NOTIFICATION and rsp[1] == payload[0]:
                 return rsp
+
+    async def read_device_info(self):
+        try:
+            raw = bytes(await self.client.read_gatt_char(OTA_DEVICE_INFO))
+        except Exception as exc:
+            print(f"device-info: unavailable ({exc})")
+            return None
+
+        print("device-info:", raw.hex(" "))
+        if len(raw) == 12 and raw[1] == 0x01:
+            mode = raw[3]
+            info = {
+                "ic_type": raw[0],
+                "ota_version": raw[1],
+                "secure_version": raw[2],
+                "buffer_check": bool(mode & 0x01),
+                "aes": bool(mode & 0x02),
+                "aes_mode_all": bool(mode & 0x04),
+                "copy_img": bool(mode & 0x08),
+                "multi_img": bool(mode & 0x10),
+                "max_buffer": struct.unpack_from("<H", raw, 4)[0],
+            }
+            print(
+                "device-info parsed: "
+                f"ic_type=0x{info['ic_type']:02X}, ota_version={info['ota_version']}, "
+                f"buffer_check={info['buffer_check']}, aes={info['aes']}, "
+                f"aes_mode_all={info['aes_mode_all']}, max_buffer={info['max_buffer']}"
+            )
+            return info
+
+        print("device-info: unrecognized format")
+        return None
+
+    @staticmethod
+    def _aes_encrypt_blocks(data: bytes, key: bytes) -> bytes:
+        cipher = AES.new(key, AES.MODE_ECB)
+        full = len(data) // 16 * 16
+        if full == 0:
+            return data
+        return cipher.encrypt(data[:full]) + data[full:]
 
     async def probe(self):
         rsp = await self.command(bytes([OP_IC_TYPE]))
@@ -225,10 +275,18 @@ class DfuSession:
 
         # Read-only checks first.
         await self.probe()
+        devinfo = await self.read_device_info()
 
-        # Bee2 START_DFU: opcode + first 12 bytes of T_IMG_CTRL_HEADER_FORMAT
-        # + 4 bytes reserved/padding.
-        start = bytes([OP_START]) + image[:CTRL_HEADER_SIZE] + bytes(4)
+        use_aes = bool(devinfo and devinfo.get("aes"))
+        aes_all = bool(devinfo and devinfo.get("aes_mode_all"))
+        if use_aes:
+            print("target requires encrypted OTA; using Realtek reference AES-256 key")
+
+        # Bee2 START_DFU: opcode + 16-byte encrypted/plain control block.
+        start_block = image[:CTRL_HEADER_SIZE] + bytes(4)
+        if use_aes:
+            start_block = self._aes_encrypt_blocks(start_block, DEFAULT_AES_KEY)
+        start = bytes([OP_START]) + start_block
         rsp = await self.command(start, timeout=8.0)
         if rsp[2] != STATUS_SUCCESS:
             raise RuntimeError(f"START_DFU rejected: {rsp.hex(' ')}")
@@ -242,8 +300,9 @@ class DfuSession:
 
         image_end = IMAGE_HEADER_SIZE + h["payload_len"]
         payload = image[offset:image_end]
+        if use_aes and aes_all:
+            payload = self._aes_encrypt_blocks(payload, DEFAULT_AES_KEY)
         total = len(payload)
-        sent = 0
 
         buf = await self.probe_buffer_check()
         if not buf or buf[0] != 0x01:
@@ -437,6 +496,7 @@ async def amain(args):
 
         if not args.flash:
             await s.probe()
+            await s.read_device_info()
             await s.probe_buffer_check()
             print("probe complete; no flash writes were performed")
             return
