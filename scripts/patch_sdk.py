@@ -13,6 +13,13 @@ ota_service_c = sdk / "src/ble/profile/server/ota_service.c"
 
 text = main_c.read_text(encoding="utf-8")
 
+# Insert the minimal plug state machine before BLE setup.
+text = text.replace(
+    """uint8_t g_ota_mode;\nuint8_t g_keystatus;\n""",
+    """uint8_t g_ota_mode;\nuint8_t g_keystatus;\n\nstatic bool eh_plug_on = false;\n\nstatic void eh_plug_set(bool on)\n{\n    eh_plug_on = on;\n    if (on)\n    {\n        GPIO_SetBits(GPIO_GetPin(P2_5));\n        GPIO_ResetBits(GPIO_GetPin(P2_2));\n        GPIO_SetBits(GPIO_GetPin(P2_3));\n    }\n    else\n    {\n        GPIO_ResetBits(GPIO_GetPin(P2_5));\n        GPIO_SetBits(GPIO_GetPin(P2_2));\n        GPIO_ResetBits(GPIO_GetPin(P2_3));\n    }\n}\n""",
+    1,
+)
+
 # Give the recovery test a unique, obvious BLE name.
 text = text.replace(
     'uint8_t  device_name[GAP_DEVICE_NAME_LEN] = "RealTekDfu";',
@@ -32,25 +39,17 @@ if old_adv not in text:
     raise SystemExit("expected RealTekDfu advertising block not found")
 text = text.replace(old_adv, new_adv, 1)
 
-# The SDK sample uses EVB GPIOs P0_0/P2_4 to decide OTA mode and handle a key.
-# Those pins are unknown on EH-MC16 and must not be touched in the first test.
+# EH-MC16 functional GPIO mapping confirmed on hardware:
+# P3_2 = button (active low), P2_5 = relay (high=on),
+# P2_2/P2_3 = red/blue two-color LED.
 text = re.sub(
     r"void pinmux_configuration\(void\)\n\{.*?\n\}",
     """void pinmux_configuration(void)
 {
-    /* GPIO probe: route only exposed EH-MC16 candidate I/O pads to DWGPIO.
-       Do not touch SWD (P1_0/P1_1), LOG/boot (P0_3), UART (P0_0/P0_1),
-       reset, power, or ground. */
-    const uint8_t pins[] = {
-        P0_5, P0_6,
-        P2_2, P2_3, P2_4, P2_5, P2_6, P2_7,
-        P3_2, P3_3,
-        P4_0, P4_1, P4_2, P4_3
-    };
-    for (unsigned i = 0; i < sizeof(pins) / sizeof(pins[0]); ++i)
-    {
-        Pinmux_Config(pins[i], DWGPIO);
-    }
+    Pinmux_Config(P3_2, DWGPIO); /* button */
+    Pinmux_Config(P2_5, DWGPIO); /* relay */
+    Pinmux_Config(P2_2, DWGPIO); /* LED red side */
+    Pinmux_Config(P2_3, DWGPIO); /* LED blue side */
 }""",
     text,
     count=1,
@@ -60,19 +59,17 @@ text = re.sub(
     r"void pad_configuration\(void\)\n\{.*?\n\}",
     """void pad_configuration(void)
 {
-    /* Input-only probe: no pull resistor and output driver disabled.
-       This never intentionally drives a candidate pin high or low. */
-    const uint8_t pins[] = {
-        P0_5, P0_6,
-        P2_2, P2_3, P2_4, P2_5, P2_6, P2_7,
-        P3_2, P3_3,
-        P4_0, P4_1, P4_2, P4_3
-    };
-    for (unsigned i = 0; i < sizeof(pins) / sizeof(pins[0]); ++i)
-    {
-        Pad_Config(pins[i], PAD_PINMUX_MODE, PAD_IS_PWRON,
-                   PAD_PULL_NONE, PAD_OUT_DISABLE, PAD_OUT_LOW);
-    }
+    /* Button: active-low, internal pull-up. */
+    Pad_Config(P3_2, PAD_PINMUX_MODE, PAD_IS_PWRON,
+               PAD_PULL_UP, PAD_OUT_DISABLE, PAD_OUT_LOW);
+
+    /* Start in OFF state: relay LOW, LED red (P2_2 high / P2_3 low). */
+    Pad_Config(P2_5, PAD_PINMUX_MODE, PAD_IS_PWRON,
+               PAD_PULL_NONE, PAD_OUT_ENABLE, PAD_OUT_LOW);
+    Pad_Config(P2_2, PAD_PINMUX_MODE, PAD_IS_PWRON,
+               PAD_PULL_NONE, PAD_OUT_ENABLE, PAD_OUT_HIGH);
+    Pad_Config(P2_3, PAD_PINMUX_MODE, PAD_IS_PWRON,
+               PAD_PULL_NONE, PAD_OUT_ENABLE, PAD_OUT_LOW);
 }""",
     text,
     count=1,
@@ -82,29 +79,77 @@ text = re.sub(
     r"void driver_init\(void\)\n\{.*?\n\}",
     """void driver_init(void)
 {
-    /* Enable DFU buffer-check without sampling the EVB TP0 GPIO. */
     g_ota_mode = 1;
-    g_keystatus = 1;
-
-    /* Configure candidate module pins strictly as GPIO inputs. */
     RCC_PeriphClockCmd(APBPeriph_GPIO, APBPeriph_GPIO_CLOCK, ENABLE);
+
+    /* Initial power state: outlet OFF, LED red. */
+    GPIO_ResetBits(GPIO_GetPin(P2_5));
+    GPIO_SetBits(GPIO_GetPin(P2_2));
+    GPIO_ResetBits(GPIO_GetPin(P2_3));
+
     GPIO_InitTypeDef gpio;
     GPIO_StructInit(&gpio);
-    gpio.GPIO_Pin =
-        GPIO_GetPin(P0_5) | GPIO_GetPin(P0_6) |
-        GPIO_GetPin(P2_2) | GPIO_GetPin(P2_3) |
-        GPIO_GetPin(P2_4) | GPIO_GetPin(P2_5) |
-        GPIO_GetPin(P2_6) | GPIO_GetPin(P2_7) |
-        GPIO_GetPin(P3_2) | GPIO_GetPin(P3_3) |
-        GPIO_GetPin(P4_0) | GPIO_GetPin(P4_1) |
-        GPIO_GetPin(P4_2) | GPIO_GetPin(P4_3);
-    gpio.GPIO_Mode = GPIO_Mode_IN;
+    gpio.GPIO_Pin = GPIO_GetPin(P2_5) | GPIO_GetPin(P2_2) | GPIO_GetPin(P2_3);
+    gpio.GPIO_Mode = GPIO_Mode_OUT;
     gpio.GPIO_ITCmd = DISABLE;
     GPIO_Init(&gpio);
+
+    /* Physical button P3_2, active low, both press/release handled by
+       changing interrupt polarity. */
+    GPIO_StructInit(&gpio);
+    gpio.GPIO_Pin = GPIO_GetPin(P3_2);
+    gpio.GPIO_Mode = GPIO_Mode_IN;
+    gpio.GPIO_ITCmd = ENABLE;
+    gpio.GPIO_ITTrigger = GPIO_INT_Trigger_EDGE;
+    gpio.GPIO_ITPolarity = GPIO_INT_POLARITY_ACTIVE_LOW;
+    gpio.GPIO_ITDebounce = GPIO_INT_DEBOUNCE_ENABLE;
+    gpio.GPIO_DebounceTime = 20;
+    GPIO_Init(&gpio);
+
+    g_keystatus = GPIO_ReadInputDataBit(GPIO_GetPin(P3_2));
+    GPIO_MaskINTConfig(GPIO_GetPin(P3_2), DISABLE);
+    GPIO_INTConfig(GPIO_GetPin(P3_2), ENABLE);
+
+    NVIC_InitTypeDef nvic;
+    nvic.NVIC_IRQChannel = GPIO26_IRQn;
+    nvic.NVIC_IRQChannelPriority = 3;
+    nvic.NVIC_IRQChannelCmd = ENABLE;
+    NVIC_Init(&nvic);
 }""",
     text,
     count=1,
     flags=re.S,
+)
+
+    flags=re.S,
+)
+
+# Toggle the outlet once on each button press. Release only rearms the edge.
+text = text.replace(
+    """    g_keystatus = GPIO_ReadInputDataBit(GPIO_GetPin(KEY));
+
+    if (g_keystatus == 0)
+    {
+        GPIO->INTPOLARITY |= GPIO_GetPin(KEY);
+    }
+    else
+    {
+        GPIO->INTPOLARITY &= ~GPIO_GetPin(KEY);
+    }
+""",
+    """    g_keystatus = GPIO_ReadInputDataBit(GPIO_GetPin(KEY));
+
+    if (g_keystatus == 0)
+    {
+        eh_plug_set(!eh_plug_on);
+        GPIO->INTPOLARITY |= GPIO_GetPin(KEY);
+    }
+    else
+    {
+        GPIO->INTPOLARITY &= ~GPIO_GetPin(KEY);
+    }
+""",
+    1,
 )
 
 # Avoid enabling the sample's low-power GPIO callbacks, which reference EVB pins.
@@ -116,6 +161,12 @@ text = text.replace(
 main_c.write_text(text, encoding="utf-8")
 
 btext = board_h.read_text(encoding="utf-8")
+btext = btext.replace("#define KEY                   P2_4       //KEY2 EVB QFN48/QFN40",
+                      "#define KEY                   P3_2       // EH-MC16 physical button", 1)
+btext = btext.replace("#define KEY_IRQ               GPIO20_IRQn",
+                      "#define KEY_IRQ               GPIO26_IRQn", 1)
+btext = btext.replace("#define KEY_INT_Handle        GPIO20_Handler",
+                      "#define KEY_INT_Handle        GPIO26_Handler", 1)
 btext = btext.replace("#define USE_GPIO_DLPS        1", "#define USE_GPIO_DLPS        0", 1)
 btext = btext.replace("#define DLPS_EN               1", "#define DLPS_EN               0", 1)
 # dfu_service.c uses this inside a preprocessor #if, so it must be a
@@ -259,7 +310,7 @@ ota_service_c.write_text(otext, encoding="utf-8")
 print(f"patched {main_c}")
 print(f"patched {board_h}")
 print("device_name=EH-MC16-TEST")
-print("candidate EH-MC16 pins configured input-only for GPIO probing")
+print("EH-MC16 plug GPIOs configured: button P3_2, relay P2_5, LED P2_2/P2_3")
 print("DFU buffer-check forced enabled")
 print("DLPS GPIO callbacks disabled")
 print("D0FF/FFD5 exposes read-only GPIO DATAIN snapshot")
