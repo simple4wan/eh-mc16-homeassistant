@@ -62,6 +62,7 @@ HAPError HandleOutletInUseRead(
 /* Implemented by the EH-MC16 board layer. */
 bool EHHomeKitOutletGetOn(void);
 void EHHomeKitOutletSetOn(bool on);
+void EHHomeKitOutletStateChanged(void);
 
 /**
  * Initialize the application.
