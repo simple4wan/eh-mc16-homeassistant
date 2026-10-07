@@ -573,11 +573,15 @@ async def identify_by_power_cycle():
     print("  python tools/ble_dfu.py --address <UUID>")
 
 
-async def find_beetgt_after_reboot(timeout: float = 15.0):
-    print("Scanning immediately for BeeTgt...")
+async def find_beetgt_after_reboot(timeout: float = 30.0):
+    print("Scanning for BeeTgt OTA target...")
     deadline = asyncio.get_running_loop().time() + timeout
+    probed: set[str] = set()
+
     while asyncio.get_running_loop().time() < deadline:
         found = await scan_snapshot(2.0)
+
+        # Fast path: identify from advertisement metadata.
         for device, adv in found.values():
             local_name = getattr(adv, "local_name", None) or ""
             dev_name = getattr(device, "name", None) or ""
@@ -586,14 +590,63 @@ async def find_beetgt_after_reboot(timeout: float = 15.0):
                 for x in (getattr(adv, "service_uuids", None) or [])
             ]
             mfg = getattr(adv, "manufacturer_data", None) or {}
+            hay = f"{local_name} {dev_name}".lower()
             if (
-                "beetgt" in f"{local_name} {dev_name}".lower()
+                "beetgt" in hay
+                or "realtek" in hay
                 or (DFU_SERVICE.lower() in service_uuids and 0x005D in mfg)
             ):
                 print(f"Found OTA target {device.address}  {local_name or dev_name or 'BeeTgt'}")
                 return device.address
+
+        # CoreBluetooth on macOS sometimes omits the OTA target's local name,
+        # manufacturer data and advertised service UUIDs after the reboot.
+        # Actively probe plausible/unnamed devices and accept only a device
+        # that exposes the DFU service but NOT the application D0FF service.
+        candidates = []
+        for device, adv in found.values():
+            address = str(device.address)
+            if address in probed:
+                continue
+            local_name = getattr(adv, "local_name", None) or ""
+            dev_name = getattr(device, "name", None) or ""
+            service_uuids = [
+                str(x).lower()
+                for x in (getattr(adv, "service_uuids", None) or [])
+            ]
+            hay = f"{local_name} {dev_name}".lower()
+            if (
+                not local_name
+                or not dev_name
+                or "bee" in hay
+                or "realtek" in hay
+                or "eh-mc16" in hay
+                or DFU_SERVICE.lower() in service_uuids
+            ):
+                candidates.append((device, local_name or dev_name or "(unnamed)"))
+
+        for device, label in candidates[:10]:
+            address = str(device.address)
+            probed.add(address)
+            print(f"  probing {address}  {label} ...", end="", flush=True)
+            try:
+                async with BleakClient(device, timeout=4.0) as probe_client:
+                    uuids = {str(x.uuid).lower() for x in probe_client.services}
+                    is_dfu = DFU_SERVICE.lower() in uuids
+                    is_app = OTA_SERVICE.lower() in uuids
+                    if is_dfu and not is_app:
+                        print(" BeeTgt DFU service found")
+                        return address
+                    print(" not OTA target")
+            except Exception:
+                print(" unavailable")
+
         await asyncio.sleep(0.5)
-    raise RuntimeError("BeeTgt OTA target was not found after reboot")
+
+    raise RuntimeError(
+        "BeeTgt OTA target was not found after reboot; "
+        "the device may have returned to application mode"
+    )
 
 
 async def find_target(name: str | None, address: str | None):
