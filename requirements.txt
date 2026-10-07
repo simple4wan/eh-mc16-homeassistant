@@ -1,1 +1,2 @@
 bleak>=1.1.1,<4.0
+pycryptodome>=3.20,<4.0
