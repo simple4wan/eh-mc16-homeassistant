@@ -1,4 +1,5 @@
 #include "HAPPlatformTimer.h"
+#include "HAPPlatformRunLoop.h"
 
 #include <os_timer.h>
 #include <os_sched.h>
@@ -17,6 +18,19 @@ typedef struct {
 
 static EHHAPTimer timers[EH_HAP_MAX_TIMERS];
 
+typedef struct {
+    HAPPlatformTimerCallback callback;
+    HAPPlatformTimerRef ref;
+    void* context;
+} EHDeferredTimer;
+
+static void RunDeferredTimer(void* bytes, size_t numBytes) {
+    if (!bytes || numBytes != sizeof(EHDeferredTimer)) return;
+    EHDeferredTimer deferred;
+    memcpy(&deferred, bytes, sizeof deferred);
+    deferred.callback(deferred.ref, deferred.context);
+}
+
 static void TimerFired(void* handle) {
     for (uintptr_t i = 0; i < EH_HAP_MAX_TIMERS; i++) {
         EHHAPTimer* t = &timers[i];
@@ -33,7 +47,15 @@ static void TimerFired(void* handle) {
             os_timer_delete(&t->osTimer);
         }
 
-        callback(ref, context);
+        EHDeferredTimer deferred = {
+            .callback = callback,
+            .ref = ref,
+            .context = context
+        };
+        (void) HAPPlatformRunLoopScheduleCallback(
+                RunDeferredTimer,
+                &deferred,
+                sizeof deferred);
         return;
     }
 }
