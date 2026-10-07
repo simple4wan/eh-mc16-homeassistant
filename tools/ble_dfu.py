@@ -564,11 +564,12 @@ async def identify_by_power_cycle():
         dev_name = getattr(device, "name", None)
         service_uuids = getattr(adv, "service_uuids", None) or []
         mfg = getattr(adv, "manufacturer_data", None) or {}
+        mfg_dump = {hex(k): bytes(v).hex(" ") for k, v in mfg.items()}
         print(
             f"  {device.address}  local_name={local_name!r}  device_name={dev_name!r} "
-            f"services={service_uuids!r} mfg_ids={[hex(x) for x in mfg.keys()]}"
+            f"services={service_uuids!r} mfg={mfg_dump}"
         )
-    print("\nUse a candidate with:")
+    print("\nUse the EH-MC16 candidate with:")
     print("  python tools/ble_dfu.py --address <UUID>")
 
 
