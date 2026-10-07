@@ -23,7 +23,6 @@ DEFS=(
   '-D_Nonnull='
   '-D_Null_unspecified='
   '-DBLE=1'
-  '-DIP=0'
   '-DHAP_ENABLE_DEVELOPMENT_ONLY_CODE=1'
   '-DHAP_LOG_LEVEL=0'
 )
