@@ -48,6 +48,15 @@ jobs:
             -Ibee2-sdk/inc/bluetooth/profile/server \
             homekit/bee2/HAPPlatformBLEPeripheralManager.c
 
+      - name: Syntax-check HomeKit Outlet app
+        run: |
+          arm-none-eabi-gcc -std=gnu11 -fsyntax-only \
+            -D__has_feature\(x\)=0 \
+            -Ihomekit/app \
+            -Ihomekit-adk/HAP \
+            -Ihomekit-adk/PAL \
+            homekit/app/DB.c homekit/app/App.c
+
       - name: Prepare Linux build tools
         run: |
           chmod +x bee2-sdk/tool/memory_icf/MemDefine || true
