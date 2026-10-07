@@ -36,21 +36,71 @@ text = text.replace(old_adv, new_adv, 1)
 # Those pins are unknown on EH-MC16 and must not be touched in the first test.
 text = re.sub(
     r"void pinmux_configuration\(void\)\n\{.*?\n\}",
-    "void pinmux_configuration(void)\n{\n    /* EH-MC16 recovery test: intentionally do not touch unknown GPIOs. */\n}",
+    """void pinmux_configuration(void)
+{
+    /* GPIO probe: route only exposed EH-MC16 candidate I/O pads to DWGPIO.
+       Do not touch SWD (P1_0/P1_1), LOG/boot (P0_3), UART (P0_0/P0_1),
+       reset, power, or ground. */
+    const uint8_t pins[] = {
+        P0_5, P0_6,
+        P2_2, P2_3, P2_4, P2_5, P2_6, P2_7,
+        P3_2, P3_3,
+        P4_0, P4_1, P4_2, P4_3
+    };
+    for (unsigned i = 0; i < sizeof(pins) / sizeof(pins[0]); ++i)
+    {
+        Pinmux_Config(pins[i], DWGPIO);
+    }
+}""",
     text,
     count=1,
     flags=re.S,
 )
 text = re.sub(
     r"void pad_configuration\(void\)\n\{.*?\n\}",
-    "void pad_configuration(void)\n{\n    /* EH-MC16 recovery test: intentionally do not touch unknown pads. */\n}",
+    """void pad_configuration(void)
+{
+    /* Input-only probe: no pull resistor and output driver disabled.
+       This never intentionally drives a candidate pin high or low. */
+    const uint8_t pins[] = {
+        P0_5, P0_6,
+        P2_2, P2_3, P2_4, P2_5, P2_6, P2_7,
+        P3_2, P3_3,
+        P4_0, P4_1, P4_2, P4_3
+    };
+    for (unsigned i = 0; i < sizeof(pins) / sizeof(pins[0]); ++i)
+    {
+        Pad_Config(pins[i], PAD_PINMUX_MODE, PAD_IS_PWRON,
+                   PAD_PULL_NONE, PAD_OUT_DISABLE, PAD_OUT_LOW);
+    }
+}""",
     text,
     count=1,
     flags=re.S,
 )
 text = re.sub(
     r"void driver_init\(void\)\n\{.*?\n\}",
-    "void driver_init(void)\n{\n    /* Enable DFU buffer-check without sampling the EVB TP0 GPIO. */\n    g_ota_mode = 1;\n    g_keystatus = 1;\n}",
+    """void driver_init(void)
+{
+    /* Enable DFU buffer-check without sampling the EVB TP0 GPIO. */
+    g_ota_mode = 1;
+    g_keystatus = 1;
+
+    /* Configure candidate module pins strictly as GPIO inputs. */
+    GPIO_InitTypeDef gpio;
+    GPIO_StructInit(&gpio);
+    gpio.GPIO_Pin =
+        GPIO_GetPin(P0_5) | GPIO_GetPin(P0_6) |
+        GPIO_GetPin(P2_2) | GPIO_GetPin(P2_3) |
+        GPIO_GetPin(P2_4) | GPIO_GetPin(P2_5) |
+        GPIO_GetPin(P2_6) | GPIO_GetPin(P2_7) |
+        GPIO_GetPin(P3_2) | GPIO_GetPin(P3_3) |
+        GPIO_GetPin(P4_0) | GPIO_GetPin(P4_1) |
+        GPIO_GetPin(P4_2) | GPIO_GetPin(P4_3);
+    gpio.GPIO_Mode = GPIO_Mode_IN;
+    gpio.GPIO_ITCmd = DISABLE;
+    GPIO_Init(&gpio);
+}""",
     text,
     count=1,
     flags=re.S,
@@ -112,7 +162,7 @@ ota_service_c.write_text(otext, encoding="utf-8")
 print(f"patched {main_c}")
 print(f"patched {board_h}")
 print("device_name=EH-MC16-TEST")
-print("unknown GPIO init disabled")
+print("candidate EH-MC16 pins configured input-only for GPIO probing")
 print("DFU buffer-check forced enabled")
 print("DLPS GPIO callbacks disabled")
 print("D0FF/FFD5 exposes read-only GPIO DATAIN snapshot")
