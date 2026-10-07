@@ -36,6 +36,7 @@ BEE2_IC_TYPE = 0x05
 APP_PATCH_ID = 0x2793
 MP_HEADER_SIZE = 512
 CTRL_HEADER_SIZE = 12
+IMAGE_HEADER_SIZE = 1024
 
 
 def load_image(path: Path) -> tuple[bytes, int]:
@@ -70,10 +71,11 @@ def validate_app_patch(image: bytes) -> dict[str, int]:
         raise ValueError(f"wrong ic_type 0x{h['ic_type']:02X}; expected 0x05")
     if h["image_id"] != APP_PATCH_ID:
         raise ValueError(f"wrong image_id 0x{h['image_id']:04X}; expected 0x2793")
-    expected = CTRL_HEADER_SIZE + h["payload_len"]
+    expected = IMAGE_HEADER_SIZE + h["payload_len"]
     if len(image) < expected:
         raise ValueError(
-            f"truncated image: have {len(image)} bytes, header declares at least {expected}"
+            f"truncated image: have {len(image)} bytes, expected at least "
+            f"{IMAGE_HEADER_SIZE}+{h['payload_len']}={expected}"
         )
     return h
 
@@ -142,12 +144,15 @@ class DfuSession:
         if rsp[2] != STATUS_SUCCESS:
             raise RuntimeError(f"START_DFU rejected: {rsp.hex(' ')}")
 
-        # Header is conveyed in START_DFU. Begin payload transfer after byte 12.
+        # START_DFU conveys the first 12 bytes. Realtek Bee2 then resumes the
+        # image stream at offset 12, so bytes 12..1023 of the 1 KiB image header
+        # MUST also be transferred before the application payload.
         offset = CTRL_HEADER_SIZE
         info = bytes([OP_IMAGE_INFO]) + struct.pack("<HI", image_id, offset)
         await self.client.write_gatt_char(DFU_CTRL, info, response=True)
 
-        payload = image[offset:CTRL_HEADER_SIZE + h["payload_len"]]
+        image_end = IMAGE_HEADER_SIZE + h["payload_len"]
+        payload = image[offset:image_end]
         total = len(payload)
         sent = 0
 
