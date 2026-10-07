@@ -9,9 +9,9 @@
 extern "C" {
 #endif
 
-#define EH_HAP_MAX_SERVICES 8
-#define EH_HAP_MAX_ATTRS_PER_SERVICE 64
-#define EH_HAP_MAX_CONST_BYTES 64
+#define EH_HAP_MAX_SERVICES 6
+#define EH_HAP_MAX_ATTRS_PER_SERVICE 32
+#define EH_HAP_MAX_CONST_BYTES 32
 
 typedef struct {
     T_ATTRIB_APPL attrs[EH_HAP_MAX_ATTRS_PER_SERVICE];
