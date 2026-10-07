@@ -11,8 +11,34 @@ main_c = sdk / "src/app/silent_ota/main.c"
 board_h = sdk / "board/evb/silent_ota_gcc/board.h"
 ota_service_c = sdk / "src/ble/profile/server/ota_service.c"
 dfu_application_c = sdk / "src/app/silent_ota/dfu_application.c"
+flash_map_h = sdk / "board/evb/silent_ota_gcc/flash_map.h"
 
 text = main_c.read_text(encoding="utf-8")
+
+# Expand the SDK's default 256 KiB flash layout to the EH-MC16's
+# 512 KiB flash. Keep silent-OTA staging as large as the application slot.
+# New layout:
+#   0x800000..0x80DFFF  reserved/OEM/OTA header/ROM patch/secure boot
+#   0x80E000..0x83DFFF  AppPatch (192 KiB)
+#   0x83E000..0x841FFF  FTL      (16 KiB)
+#   0x842000..0x871FFF  OTA tmp  (192 KiB)
+#   0x872000..0x87FFFF  spare    (56 KiB)
+flash = flash_map_h.read_text(encoding="utf-8")
+flash = flash.replace("#define FLASH_SIZE                      0x00040000  //256K Bytes",
+                      "#define FLASH_SIZE                      0x00080000  //512K Bytes")
+flash = flash.replace("#define OTA_BANK0_SIZE                  0x00023000  //140K Bytes",
+                      "#define OTA_BANK0_SIZE                  0x0003C000  //240K Bytes")
+flash = flash.replace("#define FTL_ADDR                        0x00825000",
+                      "#define FTL_ADDR                        0x0083E000")
+flash = flash.replace("#define OTA_TMP_ADDR                    0x00829000",
+                      "#define OTA_TMP_ADDR                    0x00842000")
+flash = flash.replace("#define OTA_TMP_SIZE                    0x00017000  //92K Bytes",
+                      "#define OTA_TMP_SIZE                    0x00030000  //192K Bytes")
+flash = flash.replace("#define BANK0_APP_SIZE                  0x00017000  //92K Bytes",
+                      "#define BANK0_APP_SIZE                  0x00030000  //192K Bytes")
+flash = flash.replace("#define BANK0_APP_DATA1_ADDR            0x00825000",
+                      "#define BANK0_APP_DATA1_ADDR            0x0083E000")
+flash_map_h.write_text(flash, encoding="utf-8")
 
 text = text.replace(
     '#include "rtl876x_gpio.h"',
