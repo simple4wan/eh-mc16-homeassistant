@@ -12,29 +12,24 @@ board_h = sdk / "board/evb/silent_ota_gcc/board.h"
 ota_service_c = sdk / "src/ble/profile/server/ota_service.c"
 flash_map_h = sdk / "board/evb/silent_ota_gcc/flash_map.h"
 
-# 512 KiB map already validated on the target.
+# Keep the original Realtek silent_ota flash layout unchanged.
+# This makes the final HA BLE firmware directly compatible with untouched
+# factory plugs and returns previously expanded devices to the stock map:
+#   AppPatch  0x0080E000 .. 0x00824FFF  (92 KiB)
+#   FTL       0x00825000 .. 0x00828FFF  (16 KiB)
+#   OTA TMP   0x00829000 .. 0x0083FFFF  (92 KiB)
+# Physical flash may be larger; the firmware intentionally does not depend on it.
 flash = flash_map_h.read_text()
-for old, new in {
-    "#define FLASH_SIZE                      0x00040000  //256K Bytes":
-    "#define FLASH_SIZE                      0x00080000  //512K Bytes",
-    "#define OTA_BANK0_SIZE                  0x00023000  //140K Bytes":
-    "#define OTA_BANK0_SIZE                  0x0003C000  //240K Bytes",
-    "#define FTL_ADDR                        0x00825000":
-    "#define FTL_ADDR                        0x0083E000",
-    "#define OTA_TMP_ADDR                    0x00829000":
-    "#define OTA_TMP_ADDR                    0x00842000",
-    "#define OTA_TMP_SIZE                    0x00017000  //92K Bytes":
-    "#define OTA_TMP_SIZE                    0x00030000  //192K Bytes",
-    "#define BANK0_APP_SIZE                  0x00017000  //92K Bytes":
-    "#define BANK0_APP_SIZE                  0x00030000  //192K Bytes",
-    "#define BANK0_APP_DATA1_ADDR            0x00825000":
-    "#define BANK0_APP_DATA1_ADDR            0x0083E000",
-}.items():
-    if old not in flash:
-        raise SystemExit(f"missing flash marker: {old}")
-    flash = flash.replace(old, new, 1)
-flash_map_h.write_text(flash)
-
+required_stock = {
+    "FTL_ADDR": "0x00825000",
+    "FTL_SIZE": "0x00004000",
+    "OTA_TMP_ADDR": "0x00829000",
+    "OTA_TMP_SIZE": "0x00017000",
+    "BANK0_APP_SIZE": "0x00017000",
+}
+for name, value in required_stock.items():
+    if f"#define {name}" not in flash or value not in flash:
+        raise SystemExit(f"unexpected stock flash map: {name}={value} not found")
 board = board_h.read_text()
 board = board.replace("#define KEY                   P2_4       //KEY2 EVB QFN48/QFN40",
                       "#define KEY                   P3_2       // EH-MC16 button", 1)
@@ -262,7 +257,7 @@ if old not in ota:
 ota = ota.replace(old, new, 1)
 ota_service_c.write_text(ota)
 
-print("patched EH-MC16 Home Assistant BLE firmware")
+print("patched EH-MC16 Home Assistant BLE firmware (stock flash layout)")
 print("name=EH-MC16-HA")
 print("state=FFD5 read: 00/01")
 print("control=FFD8 write: 00 off / 01 on / 02 toggle")
