@@ -316,10 +316,23 @@ atext = atext.replace(
 """,
     1,
 )
+
+# Normalize driver_init calls after patching. The upstream app_task already
+# contains one call after gap_start_bt_stack(); our startup block adds an
+# earlier call, so remove all call sites and reinsert exactly one before the
+# first boot marker. This intentionally does not touch the function prototype.
+atext = re.sub(r"(?m)^\s*driver_init\(\);\s*$\n?", "", atext)
+atext = atext.replace(
+    "    EHBootMark(1); /* red: reached app task, about to enter HAP */",
+    "    driver_init();\n    EHBootMark(1); /* red: reached app task, about to enter HAP */",
+    1,
+)
+
 if "EHBootMark(1)" not in atext or "EHBootMark(2)" not in atext:
     raise SystemExit("boot breadcrumb calls missing from app_task.c")
-if atext.count("driver_init();") != 1:
-    raise SystemExit(f"expected exactly one driver_init() in app_task.c, got {atext.count('driver_init();')}")
+_driver_calls = re.findall(r"(?m)^\s*driver_init\(\);\s*$", atext)
+if len(_driver_calls) != 1:
+    raise SystemExit(f"expected exactly one driver_init() call in app_task.c, got {len(_driver_calls)}")
 app_task_c.write_text(atext, encoding="utf-8")
 
 # Route HAP run-loop callbacks through the existing Bee2 app task.
