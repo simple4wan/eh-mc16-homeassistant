@@ -124,6 +124,7 @@ jobs:
             -Ihomekit-adk/HAP \
             -Ihomekit-adk/PAL \
             -Ihomekit-adk/PAL/Crypto/MbedTLS \
+            -Ihomekit-adk/External/HTTP \
             -Imbedtls/include \
             homekit-adk/PAL/Crypto/MbedTLS/HAPMbedTLS.c
 
