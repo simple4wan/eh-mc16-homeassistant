@@ -23,6 +23,7 @@ DFU_DATA = "00006387-3c17-d293-8e48-14fe2e4da212"
 DFU_CTRL = "00006487-3c17-d293-8e48-14fe2e4da212"
 OTA_SERVICE = "0000d0ff-3c17-d293-8e48-14fe2e4da212"
 OTA_COMMAND = "0000ffd1-0000-1000-8000-00805f9b34fb"
+OTA_GPIO_SNAPSHOT = "0000ffd5-0000-1000-8000-00805f9b34fb"
 OTA_DEVICE_INFO = "0000fff1-0000-1000-8000-00805f9b34fb"
 
 OP_START = 0x01
@@ -144,6 +145,45 @@ class DfuSession:
             rsp = await asyncio.wait_for(self.queue.get(), timeout)
             if len(rsp) >= 3 and rsp[0] == OP_NOTIFICATION and rsp[1] == payload[0]:
                 return rsp
+
+    async def read_gpio_snapshot(self) -> int:
+        gpio_char = self._find_char(OTA_SERVICE, OTA_GPIO_SNAPSHOT)
+        if gpio_char is None:
+            raise RuntimeError("FFD5 GPIO snapshot characteristic not found under D0FF service")
+        raw = bytes(await self.client.read_gatt_char(gpio_char))
+        if len(raw) != 4:
+            raise RuntimeError(f"unexpected GPIO snapshot length {len(raw)}: {raw.hex(' ')}")
+        return struct.unpack("<I", raw)[0]
+
+    async def watch_gpio(self, seconds: float = 15.0):
+        gpio_char = self._find_char(OTA_SERVICE, OTA_GPIO_SNAPSHOT)
+        if gpio_char is None:
+            raise RuntimeError(
+                "FFD5 GPIO snapshot characteristic not found; flash the GPIO-probe firmware first"
+            )
+        print(
+            f"GPIO watch: handle=0x{gpio_char.handle:04X}, duration={seconds:g}s"
+        )
+        print("Press and release the physical button several times during this window.")
+        prev = None
+        deadline = asyncio.get_running_loop().time() + seconds
+        while asyncio.get_running_loop().time() < deadline:
+            raw = bytes(await self.client.read_gatt_char(gpio_char))
+            if len(raw) != 4:
+                raise RuntimeError(f"unexpected GPIO snapshot: {raw.hex(' ')}")
+            value = struct.unpack("<I", raw)[0]
+            if prev is None:
+                print(f"  DATAIN=0x{value:08X}")
+            elif value != prev:
+                diff = value ^ prev
+                changed = [str(bit) for bit in range(32) if diff & (1 << bit)]
+                print(
+                    f"  DATAIN 0x{prev:08X} -> 0x{value:08X} "
+                    f"changed GPIO bits: {', '.join(changed)}"
+                )
+            prev = value
+            await asyncio.sleep(0.10)
+        print("GPIO watch complete; no GPIO configuration or output writes were performed")
 
     async def read_device_info(self):
         try:
@@ -625,6 +665,11 @@ async def amain(args):
     async with BleakClient(target, timeout=15.0) as client:
         print("connected")
         s = DfuSession(client)
+
+        if args.gpio_watch is not None:
+            await s.watch_gpio(args.gpio_watch)
+            return
+
         await s.start_notify()
 
         if not args.flash:
@@ -661,10 +706,20 @@ def main():
         action="store_true",
         help="capture OTA policy, reboot into BeeTgt, then perform DFU there",
     )
+    p.add_argument(
+        "--gpio-watch",
+        nargs="?",
+        const=15.0,
+        type=float,
+        metavar="SECONDS",
+        help="watch the read-only D0FF/FFD5 GPIO DATAIN snapshot (default: 15s)",
+    )
     p.add_argument("--flash", action="store_true", help="perform DFU (writes flash)")
     p.add_argument("--yes", action="store_true", help="required acknowledgement for --flash")
     args = p.parse_args()
 
+    if args.gpio_watch is not None and (args.enter_ota or args.enter_ota_flash or args.flash or args.image):
+        p.error("--gpio-watch cannot be combined with OTA/flash/image options")
     if sum(bool(x) for x in (args.enter_ota, args.enter_ota_flash, args.flash)) > 1:
         p.error("--enter-ota, --enter-ota-flash and --flash are mutually exclusive")
     if args.enter_ota and args.image:
