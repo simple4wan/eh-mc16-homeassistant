@@ -158,6 +158,84 @@ new_gpio_case = """    case BLE_SERVICE_CHAR_PATCH_EXTENSION_INDEX:        // EH
 if old_gpio_case not in otext:
     raise SystemExit("expected unused PATCH_EXTENSION read case not found")
 otext = otext.replace(old_gpio_case, new_gpio_case, 1)
+
+old_test_write = """    else if (BLE_SERVICE_CHAR_TEST_MODE_INDEX == attrib_index)
+    {
+        /* Make sure written value size is valid. */
+        if ((length != sizeof(uint8_t)) || (p_value == NULL))
+        {
+            wCause  = APP_RESULT_INVALID_VALUE_SIZE;
+        }
+        else
+        {
+            /* Notify Application. */
+            callback_data.msg_type = SERVICE_CALLBACK_TYPE_WRITE_CHAR_VALUE;
+            callback_data.msg_data.write.opcode = OTA_WRITE_TEST_MODE_CHAR_VAL;
+            callback_data.msg_data.write.u.value = p_value[0];
+
+            if (pfnOTAExtendedCB)
+            {
+                pfnOTAExtendedCB(service_id, (void *)&callback_data);
+            }
+        }
+    }
+"""
+new_test_write = """    else if (BLE_SERVICE_CHAR_TEST_MODE_INDEX == attrib_index)
+    {
+        /* EH-MC16 probe control on FFD8.  For safety this ONLY touches P0_5,
+           which the module pinout labels LED1/GPIO.  It never touches the
+           confirmed button P3_2 or any unknown relay candidate.
+
+           0x00: restore P0_5 to high-impedance GPIO input
+           0x01: drive P0_5 LOW
+           0x02: drive P0_5 HIGH
+        */
+        if ((length != sizeof(uint8_t)) || (p_value == NULL) || p_value[0] > 0x02)
+        {
+            wCause = APP_RESULT_INVALID_VALUE_SIZE;
+        }
+        else
+        {
+            const uint32_t pin = GPIO_GetPin(P0_5);
+            Pinmux_Config(P0_5, DWGPIO);
+
+            GPIO_InitTypeDef gpio;
+            GPIO_StructInit(&gpio);
+            gpio.GPIO_Pin = pin;
+            gpio.GPIO_ITCmd = DISABLE;
+
+            if (p_value[0] == 0x00)
+            {
+                Pad_Config(P0_5, PAD_PINMUX_MODE, PAD_IS_PWRON,
+                           PAD_PULL_NONE, PAD_OUT_DISABLE, PAD_OUT_LOW);
+                gpio.GPIO_Mode = GPIO_Mode_IN;
+                GPIO_Init(&gpio);
+            }
+            else
+            {
+                /* Set the output latch before enabling the pad driver. */
+                if (p_value[0] == 0x01)
+                {
+                    GPIO_ResetBits(pin);
+                    Pad_Config(P0_5, PAD_PINMUX_MODE, PAD_IS_PWRON,
+                               PAD_PULL_NONE, PAD_OUT_ENABLE, PAD_OUT_LOW);
+                }
+                else
+                {
+                    GPIO_SetBits(pin);
+                    Pad_Config(P0_5, PAD_PINMUX_MODE, PAD_IS_PWRON,
+                               PAD_PULL_NONE, PAD_OUT_ENABLE, PAD_OUT_HIGH);
+                }
+                gpio.GPIO_Mode = GPIO_Mode_OUT;
+                GPIO_Init(&gpio);
+            }
+        }
+    }
+"""
+if old_test_write not in otext:
+    raise SystemExit("expected TEST_MODE write handler not found")
+otext = otext.replace(old_test_write, new_test_write, 1)
+
 ota_service_c.write_text(otext, encoding="utf-8")
 
 print(f"patched {main_c}")
@@ -166,4 +244,4 @@ print("device_name=EH-MC16-TEST")
 print("candidate EH-MC16 pins configured input-only for GPIO probing")
 print("DFU buffer-check forced enabled")
 print("DLPS GPIO callbacks disabled")
-print("D0FF/FFD5 exposes read-only GPIO DATAIN snapshot")
+print("D0FF/FFD5 exposes read-only GPIO DATAIN snapshot")\nprint("D0FF/FFD8 provides guarded P0_5 LED probe control")
