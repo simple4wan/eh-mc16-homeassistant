@@ -22,6 +22,7 @@ DFU_SERVICE = "00006287-3c17-d293-8e48-14fe2e4da212"
 DFU_DATA = "00006387-3c17-d293-8e48-14fe2e4da212"
 DFU_CTRL = "00006487-3c17-d293-8e48-14fe2e4da212"
 OTA_SERVICE = "0000d0ff-3c17-d293-8e48-14fe2e4da212"
+OTA_COMMAND = "0000ffd1-0000-1000-8000-00805f9b34fb"
 OTA_DEVICE_INFO = "0000fff1-0000-1000-8000-00805f9b34fb"
 
 OP_START = 0x01
@@ -105,6 +106,35 @@ class DfuSession:
     async def start_notify(self):
         await self.client.start_notify(DFU_CTRL, self._notify)
 
+    def _find_char(self, service_uuid: str, char_uuid: str):
+        for service in self.client.services:
+            if str(service.uuid).lower() != service_uuid.lower():
+                continue
+            for char in service.characteristics:
+                if str(char.uuid).lower() == char_uuid.lower():
+                    return char
+        return None
+
+    async def enter_ota_mode(self):
+        ota_char = self._find_char(OTA_SERVICE, OTA_COMMAND)
+        if ota_char is None:
+            raise RuntimeError("FFD1 OTA command characteristic not found under D0FF service")
+
+        print(
+            f"OTA command handle=0x{ota_char.handle:04X} "
+            f"service={OTA_SERVICE}"
+        )
+        print("writing OTA enter command: 01")
+        try:
+            await self.client.write_gatt_char(ota_char, b"\x01", response=False)
+        except Exception as exc:
+            # The firmware intentionally disconnects immediately after accepting
+            # OTA_VALUE_ENTER, so CoreBluetooth may surface the disconnect here.
+            print(f"OTA enter write ended with disconnect/exception (often expected): {exc}")
+
+        print("waiting for reboot into OTA mode...")
+        await asyncio.sleep(5.0)
+
     async def command(self, payload: bytes, timeout: float = 5.0) -> bytes:
         while not self.queue.empty():
             self.queue.get_nowait()
@@ -117,16 +147,7 @@ class DfuSession:
 
     async def read_device_info(self):
         try:
-            target_char = None
-            for service in self.client.services:
-                if str(service.uuid).lower() != OTA_SERVICE.lower():
-                    continue
-                for char in service.characteristics:
-                    if str(char.uuid).lower() == OTA_DEVICE_INFO.lower():
-                        target_char = char
-                        break
-                if target_char is not None:
-                    break
+            target_char = self._find_char(OTA_SERVICE, OTA_DEVICE_INFO)
 
             if target_char is None:
                 raise RuntimeError("FFF1 device-info characteristic not found under D0FF service")
@@ -514,6 +535,42 @@ async def amain(args):
         )
 
     target = await find_target(args.name, args.address)
+    if args.enter_ota:
+        async with BleakClient(target, timeout=15.0) as client:
+            print("connected")
+            s = DfuSession(client)
+            await s.enter_ota_mode()
+
+        print("Scanning after OTA-mode reboot...")
+        after = await scan_snapshot(12.0)
+        if not after:
+            print("No BLE advertisements seen after OTA-mode reboot.")
+            return
+
+        print("BLE devices seen after OTA-mode reboot:")
+        for device, adv in sorted(
+            after.values(),
+            key=lambda x: ((getattr(x[1], "local_name", None) or ""), str(x[0].address)),
+        ):
+            local_name = getattr(adv, "local_name", None) or ""
+            dev_name = getattr(device, "name", None)
+            service_uuids = getattr(adv, "service_uuids", None) or []
+            mfg = getattr(adv, "manufacturer_data", None) or {}
+            if (
+                "realtek" in local_name.lower()
+                or "eh-mc16" in local_name.lower()
+                or DFU_SERVICE.lower() in [str(x).lower() for x in service_uuids]
+                or OTA_SERVICE.lower() in [str(x).lower() for x in service_uuids]
+                or 0x005D in mfg
+            ):
+                print(
+                    f"  {device.address}  local_name={local_name!r}  "
+                    f"device_name={dev_name!r} services={service_uuids!r} "
+                    f"mfg_ids={[hex(x) for x in mfg.keys()]}"
+                )
+        print("enter-ota complete; no firmware image was transmitted")
+        return
+
     async with BleakClient(target, timeout=15.0) as client:
         print("connected")
         s = DfuSession(client)
@@ -543,10 +600,19 @@ def main():
         action="store_true",
         help="identify the EH-MC16 by comparing BLE scans before/after a power cycle",
     )
+    p.add_argument(
+        "--enter-ota",
+        action="store_true",
+        help="write OTA_VALUE_ENTER (0x01) to D0FF/FFD1, reboot into OTA mode, then rescan",
+    )
     p.add_argument("--flash", action="store_true", help="perform DFU (writes flash)")
     p.add_argument("--yes", action="store_true", help="required acknowledgement for --flash")
     args = p.parse_args()
 
+    if args.enter_ota and args.flash:
+        p.error("--enter-ota and --flash are mutually exclusive")
+    if args.enter_ota and args.image:
+        p.error("--enter-ota does not use --image")
     if args.flash and not args.image:
         p.error("--flash requires --image")
     try:
