@@ -10,6 +10,8 @@
 
 #include <string.h>
 
+extern void EHBootMark(uint8_t stage);
+
 #define EH_HAP_ADV_INTERVAL HAPBLEAdvertisingIntervalCreateFromMilliseconds(417.5f)
 
 static struct {
@@ -58,6 +60,7 @@ void EHHomeKitStart(void) {
 
     memset(&hk, 0, sizeof hk);
 
+    EHBootMark(1); /* entering HomeKit; before KVS */
     HAPPlatformKeyValueStoreCreate(
             &hk.keyValueStore,
             &(const HAPPlatformKeyValueStoreOptions) {
@@ -66,6 +69,7 @@ void EHHomeKitStart(void) {
             });
     hk.platform.keyValueStore = &hk.keyValueStore;
 
+    EHBootMark(2); /* KVS complete; before accessory setup */
     HAPPlatformAccessorySetupCreate(
             &hk.accessorySetup,
             &(const HAPPlatformAccessorySetupOptions) {
@@ -73,6 +77,7 @@ void EHHomeKitStart(void) {
             });
     hk.platform.accessorySetup = &hk.accessorySetup;
 
+    EHBootMark(3); /* accessory setup complete; before BLE PAL */
     HAPPlatformBLEPeripheralManagerCreate(
             &hk.blePeripheralManager,
             &(const HAPPlatformBLEPeripheralManagerOptions) {
@@ -80,6 +85,7 @@ void EHHomeKitStart(void) {
             });
     hk.platform.ble.blePeripheralManager = &hk.blePeripheralManager;
 
+    EHBootMark(4); /* BLE PAL complete; before run loop */
     HAPPlatformRunLoopCreate(
             &(const HAPPlatformRunLoopOptions) {
                 .keyValueStore = &hk.keyValueStore
@@ -93,6 +99,7 @@ void EHHomeKitStart(void) {
 
     hk.callbacks.handleUpdatedState = HandleUpdatedState;
 
+    EHBootMark(5); /* platform/options complete; before HAPAccessoryServerCreate */
     HAPAccessoryServerCreate(
             &accessoryServer,
             &hk.serverOptions,
@@ -100,8 +107,13 @@ void EHHomeKitStart(void) {
             &hk.callbacks,
             NULL);
 
+    EHBootMark(6); /* HAPAccessoryServerCreate returned; before AppCreate */
     AppCreate(&accessoryServer, &hk.keyValueStore);
+
+    EHBootMark(7); /* AppCreate returned; before AppAccessoryServerStart */
     AppAccessoryServerStart();
+
+    EHBootMark(8); /* AppAccessoryServerStart returned */
     hk.started = true;
 }
 
