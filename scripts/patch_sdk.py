@@ -42,7 +42,7 @@ flash_map_h.write_text(flash, encoding="utf-8")
 
 text = text.replace(
     '#include "rtl876x_gpio.h"',
-    '#include "rtl876x_gpio.h"\n#include "rtl876x_wdg.h"\nextern void EHHomeKitFactoryReset(void);\nextern void EHHomeKitOutletStateChanged(void);',
+    '#include "rtl876x_gpio.h"\n#include "rtl876x_wdg.h"\nextern void EHHomeKitStart(void);\nextern void EHHomeKitFactoryReset(void);\nextern void EHHomeKitOutletStateChanged(void);',
     1,
 )
 
@@ -50,6 +50,17 @@ text = text.replace(
 text = text.replace(
     """uint8_t g_ota_mode;\nuint8_t g_keystatus;\n""",
     """uint8_t g_ota_mode;\nuint8_t g_keystatus;\n\nstatic bool eh_plug_on = false;\nstatic bool eh_reset_warning = false;\nstatic bool eh_reset_done = false;\nstatic bool eh_flash_phase = false;\nstatic void *eh_reset_warn_timer;\nstatic void *eh_reset_commit_timer;\nstatic void *eh_reset_flash_timer;\n\nstatic void eh_led_show_state(void)\n{\n    if (eh_plug_on)\n    {\n        GPIO_ResetBits(GPIO_GetPin(P2_2));\n        GPIO_SetBits(GPIO_GetPin(P2_3));\n    }\n    else\n    {\n        GPIO_SetBits(GPIO_GetPin(P2_2));\n        GPIO_ResetBits(GPIO_GetPin(P2_3));\n    }\n}\n\nstatic void eh_plug_set(bool on)\n{\n    eh_plug_on = on;\n    if (on)\n    {\n        GPIO_SetBits(GPIO_GetPin(P2_5));\n    }\n    else\n    {\n        GPIO_ResetBits(GPIO_GetPin(P2_5));\n    }\n    eh_led_show_state();\n    EHHomeKitOutletStateChanged();\n}\n\nbool EHHomeKitOutletGetOn(void)\n{\n    return eh_plug_on;\n}\n\nvoid EHHomeKitOutletSetOn(bool on)\n{\n    eh_plug_set(on);\n}\n\n/* This hook will erase only the HomeKit pairing/KV area once the HAP\n   persistent store is wired in. Keeping it isolated prevents OTA metadata\n   from ever being erased by a HomeKit factory reset. */\nstatic void eh_homekit_factory_reset(void)\n{\n    EHHomeKitFactoryReset();\n}\n\nstatic void eh_reset_flash_cb(void *timer)\n{\n    (void) timer;\n    eh_flash_phase = !eh_flash_phase;\n    if (eh_flash_phase)\n    {\n        GPIO_SetBits(GPIO_GetPin(P2_2));\n        GPIO_ResetBits(GPIO_GetPin(P2_3));\n    }\n    else\n    {\n        GPIO_ResetBits(GPIO_GetPin(P2_2));\n        GPIO_SetBits(GPIO_GetPin(P2_3));\n    }\n}\n\nstatic void eh_reset_warn_cb(void *timer)\n{\n    (void) timer;\n    if (GPIO_ReadInputDataBit(GPIO_GetPin(P3_2)) == 0)\n    {\n        eh_reset_warning = true;\n        eh_flash_phase = false;\n        os_timer_start(&eh_reset_flash_timer);\n    }\n}\n\nstatic void eh_reset_commit_cb(void *timer)\n{\n    (void) timer;\n    if (GPIO_ReadInputDataBit(GPIO_GetPin(P3_2)) == 0)\n    {\n        eh_reset_done = true;\n        os_timer_stop(&eh_reset_flash_timer);\n        eh_plug_set(false);\n        eh_homekit_factory_reset();\n        WDG_SystemReset(RESET_ALL, (T_SW_RESET_REASON) 0xE1);\n    }\n}\n""",
+    1,
+)
+
+# Reserve service slots for the 4 legacy OTA services plus the HAP database.
+text = text.replace("server_init(4);", "server_init(12);", 1)
+
+# Register HAP services before the Bee2 stack starts. Advertising itself is
+# deferred until GAP_INIT_STATE_STACK_READY by the BLE PAL.
+text = text.replace(
+    "    app_le_profile_init();\n    pwr_mgr_init();",
+    "    app_le_profile_init();\n    EHHomeKitStart();\n    pwr_mgr_init();",
     1,
 )
 
