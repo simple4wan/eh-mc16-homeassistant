@@ -245,7 +245,7 @@ class DfuSession:
             unit *= 2
         return unit
 
-    async def _send_buffer_checked(self, data: bytes, max_buffer: int, mtu: int):
+    async def _send_buffer_checked(self, data: bytes, max_buffer: int, mtu: int, encrypt: bool = False):
         send_unit = self._send_unit_from_mtu(mtu)
         check_unit = (max_buffer // send_unit) * send_unit
         if check_unit <= 0:
@@ -266,12 +266,19 @@ class DfuSession:
 
             block = data[pos:pos + block_len]
 
-            for off in range(0, len(block), send_unit):
-                chunk = block[off:off + send_unit]
+            # Realtek's reference client encrypts each buffer-check block
+            # independently, and only complete 16-byte AES blocks. This matters
+            # for the first block (2036 bytes when starting at image offset 12):
+            # its final 4 bytes are intentionally left plaintext, and the next
+            # 2048-byte check block restarts AES alignment from byte 0.
+            wire_block = self._aes_encrypt_blocks(block, DEFAULT_AES_KEY) if encrypt else block
+
+            for off in range(0, len(wire_block), send_unit):
+                chunk = wire_block[off:off + send_unit]
                 await self.client.write_gatt_char(DFU_DATA, chunk, response=False)
                 await asyncio.sleep(0.003)
 
-            crc = self._buffer_crc(block)
+            crc = self._buffer_crc(wire_block)
             rsp = await self.command(
                 bytes([OP_REPORT_BUFFER_CRC]) + struct.pack("<HH", len(block), crc),
                 timeout=12.0,
@@ -318,8 +325,6 @@ class DfuSession:
 
         image_end = IMAGE_HEADER_SIZE + h["payload_len"]
         payload = image[offset:image_end]
-        if use_aes and aes_all:
-            payload = self._aes_encrypt_blocks(payload, DEFAULT_AES_KEY)
         total = len(payload)
 
         buf = await self.probe_buffer_check()
@@ -328,7 +333,9 @@ class DfuSession:
                 "target did not enable buffer-check; refusing first experimental flash"
             )
         _, max_buffer, mtu = buf
-        await self._send_buffer_checked(payload, max_buffer, mtu)
+        await self._send_buffer_checked(
+            payload, max_buffer, mtu, encrypt=(use_aes and aes_all)
+        )
 
         rsp = await self.command(bytes([OP_VALIDATE]) + struct.pack("<H", image_id), timeout=12.0)
         if rsp[2] != STATUS_SUCCESS:
