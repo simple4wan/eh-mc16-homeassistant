@@ -289,3 +289,61 @@ jobs:
           name: eh-mc16-layout-bridge-firmware
           path: build/bridge-artifacts/
           if-no-files-found: error
+
+
+  ha-ble:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Install ARM GCC
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi make git file
+
+      - name: Fetch pinned Bee2 SDK
+        run: |
+          git clone https://github.com/wuwbobo/rtl8762c-sdk-gcc.git bee2-sdk-ha
+          cd bee2-sdk-ha
+          git checkout 88aa8c7b72370f86a0841a07610901ef4091094e
+
+      - name: Prepare Linux build tools
+        run: |
+          chmod +x bee2-sdk-ha/tool/memory_icf/MemDefine || true
+          chmod +x bee2-sdk-ha/tool/hex2bin/Hex2Bin || true
+          chmod +x bee2-sdk-ha/tool/prepend_header/prepend_header || true
+          chmod +x bee2-sdk-ha/tool/md5/md5 || true
+          PROJECT=bee2-sdk-ha/board/evb/silent_ota_gcc/Makefile
+          sed -i 's#../../../tool/memory_icf/MemDefine\.exe#../../../tool/memory_icf/MemDefine#g' "$PROJECT"
+          sed -i 's#../../../../sdk/src/mcu/rtl876x/arm/startup_rtl8762c_gcc\.s#../../../src/mcu/rtl876x/arm/startup_rtl8762c_gcc.s#g' "$PROJECT"
+
+      - name: Apply HA BLE plug patch
+        run: |
+          python3 scripts/patch_ha_ble.py bee2-sdk-ha
+
+      - name: Build HA BLE plug
+        working-directory: bee2-sdk-ha/board/evb/silent_ota_gcc
+        run: |
+          make clean || true
+          make V=1
+
+      - name: Inspect HA BLE image
+        run: |
+          python3 scripts/inspect_image.py             bee2-sdk-ha/board/evb/silent_ota_gcc/bin/silent_ota_MP.bin             build/ha-ble-image-info.txt
+          cat build/ha-ble-image-info.txt
+
+      - name: Collect HA BLE artifact
+        run: |
+          mkdir -p build/ha-ble-artifacts
+          cp bee2-sdk-ha/board/evb/silent_ota_gcc/bin/silent_ota_MP.bin build/ha-ble-artifacts/EH-MC16-HA-BLE_MP.bin
+          cp bee2-sdk-ha/board/evb/silent_ota_gcc/bin/silent_ota.bin build/ha-ble-artifacts/EH-MC16-HA-BLE.bin
+          cp build/ha-ble-image-info.txt build/ha-ble-artifacts/image-info.txt
+          sha256sum build/ha-ble-artifacts/* > build/ha-ble-artifacts/SHA256SUMS.txt
+
+      - name: Upload HA BLE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eh-mc16-ha-ble-firmware
+          path: build/ha-ble-artifacts/
+          if-no-files-found: error
