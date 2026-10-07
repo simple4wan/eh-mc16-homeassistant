@@ -31,6 +31,7 @@ INCLUDES=(
   "-I$BEE2/inc/app"
   "-I$BEE2/inc/os"
   "-I$BEE2/inc/platform"
+  "-I$BEE2/inc/platform/cmsis"
   "-I$BEE2/inc/peripheral"
   "-I$BEE2/inc/bluetooth"
   "-I$BEE2/inc/bluetooth/gap"
