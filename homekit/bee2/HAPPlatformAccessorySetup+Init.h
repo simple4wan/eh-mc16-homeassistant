@@ -37,6 +37,10 @@ struct HAPPlatformAccessorySetup {
     /**@endcond */
 };
 
+void HAPPlatformAccessorySetupCreate(
+        HAPPlatformAccessorySetupRef accessorySetup,
+        const HAPPlatformAccessorySetupOptions* options);
+
 #if __has_feature(nullability)
 #pragma clang assume_nonnull end
 #endif
