@@ -9,6 +9,7 @@ if len(sys.argv) != 2:
 sdk = Path(sys.argv[1])
 main_c = sdk / "src/app/silent_ota/main.c"
 board_h = sdk / "board/evb/silent_ota_gcc/board.h"
+ota_service_c = sdk / "src/ble/profile/server/ota_service.c"
 
 text = main_c.read_text(encoding="utf-8")
 
@@ -76,9 +77,42 @@ btext = btext.replace(
 )
 board_h.write_text(btext, encoding="utf-8")
 
+# Expose a read-only GPIO DATAIN snapshot through the otherwise-unused
+# D0FF/FFD5 Patch Extension characteristic.  This deliberately does NOT
+# configure pinmux, pulls, GPIO direction, or output values; it only reads the
+# hardware input register, so unknown relay/LED pins are never driven.
+otext = ota_service_c.read_text(encoding="utf-8")
+if '#include "rtl876x_gpio.h"' not in otext:
+    otext = otext.replace(
+        '#include "board.h"',
+        '#include "board.h"\n#include "rtl876x_gpio.h"',
+        1,
+    )
+
+old_gpio_case = """    case BLE_SERVICE_CHAR_PATCH_EXTENSION_INDEX:        //not used in bee2
+        {
+
+        }
+        break;
+"""
+new_gpio_case = """    case BLE_SERVICE_CHAR_PATCH_EXTENSION_INDEX:        // EH-MC16 read-only GPIO probe
+        {
+            static uint32_t gpio_datain_snapshot;
+            gpio_datain_snapshot = GPIO_ReadInputData();
+            *pp_value = (uint8_t *)&gpio_datain_snapshot;
+            *p_length = sizeof(gpio_datain_snapshot);
+        }
+        break;
+"""
+if old_gpio_case not in otext:
+    raise SystemExit("expected unused PATCH_EXTENSION read case not found")
+otext = otext.replace(old_gpio_case, new_gpio_case, 1)
+ota_service_c.write_text(otext, encoding="utf-8")
+
 print(f"patched {main_c}")
 print(f"patched {board_h}")
 print("device_name=EH-MC16-TEST")
 print("unknown GPIO init disabled")
 print("DFU buffer-check forced enabled")
 print("DLPS GPIO callbacks disabled")
+print("D0FF/FFD5 exposes read-only GPIO DATAIN snapshot")
