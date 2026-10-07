@@ -258,6 +258,14 @@ class DfuSession:
             raise RuntimeError(f"VALIDATE rejected: {rsp.hex(' ')}")
 
         print("validation successful")
+        print("")
+        print("Firmware has been transferred and validated, but is NOT active yet.")
+        print("Type ACTIVATE to switch to the new image and reboot, or anything else to stop here.")
+        answer = (await asyncio.to_thread(input, "> ")).strip()
+        if answer != "ACTIVATE":
+            print("activation cancelled; current running firmware remains active for now")
+            return
+
         print("activating image; device should reboot...")
         try:
             await self.client.write_gatt_char(DFU_CTRL, bytes([OP_ACTIVATE_RESET]), response=True)
