@@ -1,0 +1,16 @@
+{
+  "title": "EH-MC16 BLE Plug",
+  "config": {
+    "step": {
+      "bluetooth_confirm": {
+        "title": "Add EH-MC16 BLE Plug",
+        "description": "Add {name} ({address}) to Home Assistant?"
+      }
+    },
+    "abort": {
+      "not_supported": "This Bluetooth device is not a supported EH-MC16.",
+      "no_devices_found": "No EH-MC16 device was found.",
+      "already_configured": "This EH-MC16 is already configured."
+    }
+  }
+}
