@@ -170,6 +170,76 @@ jobs:
           make clean || true
           make V=1
 
+      - name: Verify HomeKit symbols are linked
+        run: |
+          ELF=bee2-sdk/board/evb/silent_ota_gcc/build/silent_ota.elf
+          arm-none-eabi-nm "$ELF" | grep -E 'EHHomeKitStart        run: |
+          python3 scripts/inspect_image.py \
+            bee2-sdk/board/evb/silent_ota_gcc/bin/silent_ota_MP.bin \
+            build/image-info.txt
+          cat build/image-info.txt
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p build/artifacts
+          cp bee2-sdk/board/evb/silent_ota_gcc/bin/silent_ota_MP.bin build/artifacts/EH-MC16-RECOVERY-TEST_MP.bin
+          cp bee2-sdk/board/evb/silent_ota_gcc/bin/silent_ota.bin build/artifacts/EH-MC16-RECOVERY-TEST.bin
+          cp bee2-sdk/board/evb/silent_ota_gcc/build/silent_ota.elf build/artifacts/EH-MC16-RECOVERY-TEST.elf
+          cp build/image-info.txt build/artifacts/image-info.txt
+          sha256sum build/artifacts/* > build/artifacts/SHA256SUMS.txt
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eh-mc16-recovery-test-firmware
+          path: build/artifacts/
+          if-no-files-found: error
+
+          arm-none-eabi-nm "$ELF" | grep -E 'HAPAccessoryServerStart        run: |
+          python3 scripts/inspect_image.py \
+            bee2-sdk/board/evb/silent_ota_gcc/bin/silent_ota_MP.bin \
+            build/image-info.txt
+          cat build/image-info.txt
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p build/artifacts
+          cp bee2-sdk/board/evb/silent_ota_gcc/bin/silent_ota_MP.bin build/artifacts/EH-MC16-RECOVERY-TEST_MP.bin
+          cp bee2-sdk/board/evb/silent_ota_gcc/bin/silent_ota.bin build/artifacts/EH-MC16-RECOVERY-TEST.bin
+          cp bee2-sdk/board/evb/silent_ota_gcc/build/silent_ota.elf build/artifacts/EH-MC16-RECOVERY-TEST.elf
+          cp build/image-info.txt build/artifacts/image-info.txt
+          sha256sum build/artifacts/* > build/artifacts/SHA256SUMS.txt
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eh-mc16-recovery-test-firmware
+          path: build/artifacts/
+          if-no-files-found: error
+
+          arm-none-eabi-nm "$ELF" | grep -E 'HAPPlatformBLEPeripheralManagerStartAdvertising        run: |
+          python3 scripts/inspect_image.py \
+            bee2-sdk/board/evb/silent_ota_gcc/bin/silent_ota_MP.bin \
+            build/image-info.txt
+          cat build/image-info.txt
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p build/artifacts
+          cp bee2-sdk/board/evb/silent_ota_gcc/bin/silent_ota_MP.bin build/artifacts/EH-MC16-RECOVERY-TEST_MP.bin
+          cp bee2-sdk/board/evb/silent_ota_gcc/bin/silent_ota.bin build/artifacts/EH-MC16-RECOVERY-TEST.bin
+          cp bee2-sdk/board/evb/silent_ota_gcc/build/silent_ota.elf build/artifacts/EH-MC16-RECOVERY-TEST.elf
+          cp build/image-info.txt build/artifacts/image-info.txt
+          sha256sum build/artifacts/* > build/artifacts/SHA256SUMS.txt
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eh-mc16-recovery-test-firmware
+          path: build/artifacts/
+          if-no-files-found: error
+
+
       - name: Inspect generated image
         run: |
           python3 scripts/inspect_image.py \
