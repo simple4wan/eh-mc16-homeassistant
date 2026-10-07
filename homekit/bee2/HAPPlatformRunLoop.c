@@ -1,9 +1,11 @@
 #include "HAPPlatformRunLoop+Init.h"
 
-#include <app_task.h>
+#include <app_msg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+
+extern bool app_send_msg_to_apptask(T_IO_MSG* p_msg);
 
 #define EH_HAP_RUNLOOP_SUBTYPE 0x4841u
 #define EH_HAP_RUNLOOP_SLOTS 8
