@@ -258,7 +258,7 @@ atext = atext.replace(
 if "extern void EHHomeKitStart(void);" not in atext:
     atext = atext.replace(
         '#include "otp_config.h"',
-        '#include "otp_config.h"\nextern void EHHomeKitStart(void);',
+        '#include "otp_config.h"\nextern void EHHomeKitStart(void);\nextern void EHBootMark(uint8_t stage);',
         1,
     )
 atext = atext.replace(
@@ -268,10 +268,16 @@ atext = atext.replace(
 """,
     """    os_msg_queue_create(&evt_queue_handle, MAX_NUMBER_OF_EVENT_MESSAGE, sizeof(uint8_t));
 
+    /* Bring up the known-safe GPIOs before entering HAP so the LED itself
+       becomes a boot breadcrumb. Relay remains OFF. */
+    driver_init();
+    EHBootMark(1); /* red: reached app task, about to enter HAP */
+
     /* HAP may schedule run-loop callbacks immediately during startup, so the
-       Bee2 queues must already exist. Register HAP GATT services before the
-       Bluetooth stack is started. */
+       Bee2 queues already exist. Register HAP GATT services before starting
+       the Bluetooth stack. */
     EHHomeKitStart();
+    EHBootMark(2); /* blue: HAP startup returned */
 
     gap_start_bt_stack(evt_queue_handle, io_queue_handle, MAX_NUMBER_OF_GAP_MESSAGE);
 """,
