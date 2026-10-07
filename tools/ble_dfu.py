@@ -180,11 +180,10 @@ async def find_target(name: str | None, address: str | None):
         return address
 
     print("Scanning for BLE devices...")
-    found: dict[str, tuple[object, str]] = {}
+    found: dict[str, tuple[object, object]] = {}
 
     def on_detect(device, adv):
-        local_name = getattr(adv, "local_name", None) or getattr(device, "name", None) or ""
-        found[str(device.address)] = (device, local_name)
+        found[str(device.address)] = (device, adv)
 
     scanner = BleakScanner(detection_callback=on_detect)
     await scanner.start()
@@ -199,29 +198,76 @@ async def find_target(name: str | None, address: str | None):
 
     needle = (name or "").lower()
     matches = []
-    for device, local_name in found.values():
-        dev_name = getattr(device, "name", None) or ""
-        hay = f"{local_name} {dev_name}".lower()
-        if not needle or needle in hay:
-            matches.append((device, local_name))
+    dfu_advertised = []
 
-    if not matches:
-        print("No matching name. Nearby BLE advertisements:")
-        for device, local_name in sorted(found.values(), key=lambda x: (x[1] or "", str(x[0].address))):
-            print(f"  {device.address}  local_name={local_name!r}  device_name={getattr(device, 'name', None)!r}")
-        raise RuntimeError(
-            f"no device matched {name!r}; on macOS use the CoreBluetooth UUID shown above with --address"
-        )
+    for device, adv in found.values():
+        local_name = getattr(adv, "local_name", None) or ""
+        dev_name = getattr(device, "name", None) or ""
+        service_uuids = [str(x).lower() for x in (getattr(adv, "service_uuids", None) or [])]
+        hay = f"{local_name} {dev_name}".lower()
+
+        if DFU_SERVICE.lower() in service_uuids:
+            dfu_advertised.append((device, adv))
+
+        if not needle or needle in hay:
+            matches.append((device, adv))
+
+    if len(matches) == 1:
+        device, adv = matches[0]
+        local_name = getattr(adv, "local_name", None) or getattr(device, "name", None)
+        print(f"Found {device.address}  {local_name}")
+        return device.address
 
     if len(matches) > 1:
-        print("Multiple matches:")
-        for device, local_name in matches:
-            print(f"  {device.address}  {local_name or getattr(device, 'name', None)}")
+        print("Multiple name matches:")
+        for device, adv in matches:
+            local_name = getattr(adv, "local_name", None) or getattr(device, "name", None)
+            print(f"  {device.address}  {local_name}")
         raise RuntimeError("multiple devices matched; pass --address")
 
-    device, local_name = matches[0]
-    print(f"Found {device.address}  {local_name or getattr(device, 'name', None)}")
-    return device.address
+    if len(dfu_advertised) == 1:
+        device, adv = dfu_advertised[0]
+        print(f"Found DFU service in advertisement: {device.address}")
+        return device.address
+
+    # EH-MC16 may advertise without a local name on macOS. In that case,
+    # probe only unnamed devices by connecting and checking discovered GATT services.
+    unnamed = []
+    for device, adv in found.values():
+        local_name = getattr(adv, "local_name", None) or ""
+        dev_name = getattr(device, "name", None) or ""
+        if not local_name and not dev_name:
+            unnamed.append((device, adv))
+
+    if unnamed:
+        print(f"No name match; probing {len(unnamed)} unnamed BLE devices for the Realtek DFU service...")
+        for idx, (device, adv) in enumerate(unnamed, 1):
+            print(f"  [{idx}/{len(unnamed)}] {device.address}", end="", flush=True)
+            try:
+                async with BleakClient(device, timeout=4.0) as probe_client:
+                    uuids = {str(s.uuid).lower() for s in probe_client.services}
+                    if DFU_SERVICE.lower() in uuids:
+                        print("  <-- EH-MC16 DFU service found")
+                        return device.address
+                    print("  no")
+            except Exception:
+                print("  unavailable")
+
+    print("No matching name or DFU service found. Nearby BLE advertisements:")
+    for device, adv in sorted(found.values(), key=lambda x: ((getattr(x[1], "local_name", None) or ""), str(x[0].address))):
+        local_name = getattr(adv, "local_name", None) or ""
+        dev_name = getattr(device, "name", None)
+        service_uuids = getattr(adv, "service_uuids", None) or []
+        mfg = getattr(adv, "manufacturer_data", None) or {}
+        print(
+            f"  {device.address}  local_name={local_name!r}  "
+            f"device_name={dev_name!r}  services={service_uuids!r}  "
+            f"mfg_ids={[hex(k) for k in mfg.keys()]}"
+        )
+
+    raise RuntimeError(
+        f"no device matched {name!r} and no device exposed the Realtek DFU service"
+    )
 
 
 async def amain(args):
