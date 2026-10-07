@@ -6,6 +6,8 @@
 #include <gap_conn_le.h>
 #include <gap_le.h>
 
+extern void EHBootTrace(uint8_t code);
+
 #define EH_HAP_DEFAULT_FIRST_HANDLE 0x0100
 
 static HAPPlatformBLEPeripheralManagerRef gManager;
@@ -281,6 +283,7 @@ HAPError HAPPlatformBLEPeripheralManagerAddDescriptor(
 }
 
 void HAPPlatformBLEPeripheralManagerPublishServices(HAPPlatformBLEPeripheralManagerRef m) {
+    EHBootTrace(7); /* publish services entered */
     for (uint8_t i = 0; i < m->numServices; i++) {
         EH_HAP_BLE_Service* s = &m->services[i];
         if (!server_add_service_by_start_handle(
@@ -295,6 +298,7 @@ void HAPPlatformBLEPeripheralManagerPublishServices(HAPPlatformBLEPeripheralMana
         m->nextHandle = (uint16_t)(s->startHandle + s->numAttrs);
     }
     m->didPublishAttributes = true;
+    EHBootTrace(8); /* publish services completed */
 }
 
 void HAPPlatformBLEPeripheralManagerStartAdvertising(
@@ -304,6 +308,7 @@ void HAPPlatformBLEPeripheralManagerStartAdvertising(
         size_t numAdvertisingBytes,
         const void* scanResponseBytes,
         size_t numScanResponseBytes) {
+    EHBootTrace(9); /* advertising request reached PAL */
     if (numAdvertisingBytes > 31 || numScanResponseBytes > 31) return;
     m->advertisingRequested = true;
     memcpy(m->advertisingBytes, advertisingBytes, numAdvertisingBytes);
