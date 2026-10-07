@@ -64,9 +64,10 @@ while IFS= read -r p; do sources+=("$p"); done < <(
   find "$ADK/HAP" "$ADK/External/HTTP" "$ADK/External/JSON" "$ADK/External/Base64" \
     -maxdepth 1 -type f -name '*.c' | sort
 )
+while IFS= read -r p; do sources+=("$p"); done < <(
+  find "$ADK/PAL" -maxdepth 1 -type f -name '*.c' | sort
+)
 sources+=(
-  "$ADK/PAL/HAPBase+Crypto.c"
-  "$ADK/PAL/HAPPlatformSystemInit.c"
   "$ADK/PAL/Crypto/MbedTLS/HAPMbedTLS.c"
 )
 
