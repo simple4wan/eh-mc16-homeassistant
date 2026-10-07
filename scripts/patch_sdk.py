@@ -10,6 +10,7 @@ sdk = Path(sys.argv[1])
 main_c = sdk / "src/app/silent_ota/main.c"
 board_h = sdk / "board/evb/silent_ota_gcc/board.h"
 ota_service_c = sdk / "src/ble/profile/server/ota_service.c"
+dfu_application_c = sdk / "src/app/silent_ota/dfu_application.c"
 
 text = main_c.read_text(encoding="utf-8")
 
@@ -208,6 +209,41 @@ text = re.sub(
 
 main_c.write_text(text, encoding="utf-8")
 
+# Route HAP run-loop callbacks through the existing Bee2 app task.
+dtext = dfu_application_c.read_text(encoding="utf-8")
+if "EH_HAP_RunLoopHandleIO" not in dtext:
+    dtext = dtext.replace(
+        '#include "otp_config.h"',
+        '#include "otp_config.h"\nextern void EH_HAP_RunLoopHandleIO(const T_IO_MSG *msg);',
+        1,
+    )
+    dtext = dtext.replace(
+        """    case IO_MSG_TYPE_DFU_VALID_FW:
+        {
+            APP_PRINT_INFO0("IO_MSG_TYPE_DFU_VALID_FW");
+            dfu_service_handle_valid_fw(io_driver_msg_recv.u.param);
+        }
+        break;
+    default:
+""",
+        """    case IO_MSG_TYPE_DFU_VALID_FW:
+        {
+            APP_PRINT_INFO0("IO_MSG_TYPE_DFU_VALID_FW");
+            dfu_service_handle_valid_fw(io_driver_msg_recv.u.param);
+        }
+        break;
+    case IO_MSG_TYPE_OTHERS:
+        {
+            EH_HAP_RunLoopHandleIO(&io_driver_msg_recv);
+        }
+        break;
+    default:
+""",
+        1,
+    )
+dfu_application_c.write_text(dtext, encoding="utf-8")
+
+
 btext = board_h.read_text(encoding="utf-8")
 btext = btext.replace("#define KEY                   P2_4       //KEY2 EVB QFN48/QFN40",
                       "#define KEY                   P3_2       // EH-MC16 physical button", 1)
@@ -357,6 +393,7 @@ ota_service_c.write_text(otext, encoding="utf-8")
 
 print(f"patched {main_c}")
 print(f"patched {board_h}")
+print(f"patched {dfu_application_c}")
 print("device_name=EH-MC16-TEST")
 print("EH-MC16 plug GPIOs configured: button P3_2, relay P2_5, LED P2_2/P2_3")
 print("button behavior: short press toggles; 7s warning; 10s HomeKit reset hook + reboot")
