@@ -1,0 +1,68 @@
+name: Build EH-MC16 test firmware
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Install ARM GCC
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi make git file
+
+      - name: Fetch pinned Bee2 SDK
+        run: |
+          git clone https://github.com/wuwbobo/rtl8762c-sdk-gcc.git bee2-sdk
+          cd bee2-sdk
+          git checkout 88aa8c7b72370f86a0841a07610901ef4091094e
+
+      - name: Prepare Linux build tools
+        run: |
+          chmod +x bee2-sdk/tool/memory_icf/MemDefine || true
+          chmod +x bee2-sdk/tool/hex2bin/Hex2Bin || true
+          chmod +x bee2-sdk/tool/prepend_header/prepend_header || true
+          chmod +x bee2-sdk/tool/md5/md5 || true
+
+          PROJECT=bee2-sdk/board/evb/ble_peripheral_gcc/Makefile
+
+          # The upstream GCC example references the Windows MemDefine executable.
+          sed -i 's#../../../tool/memory_icf/MemDefine\.exe#../../../tool/memory_icf/MemDefine#g' "$PROJECT"
+
+      - name: Apply EH-MC16 test identity
+        run: |
+          python3 scripts/patch_sdk.py bee2-sdk
+
+      - name: Build
+        working-directory: bee2-sdk/board/evb/ble_peripheral_gcc
+        run: |
+          make clean || true
+          make V=1
+
+      - name: Inspect generated image
+        run: |
+          python3 scripts/inspect_image.py             bee2-sdk/board/evb/ble_peripheral_gcc/bin/peripheral_MP.bin             build/image-info.txt
+          cat build/image-info.txt
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p build/artifacts
+          cp bee2-sdk/board/evb/ble_peripheral_gcc/bin/peripheral_MP.bin build/artifacts/EH-MC16-TEST_MP.bin
+          cp bee2-sdk/board/evb/ble_peripheral_gcc/bin/peripheral.bin build/artifacts/EH-MC16-TEST.bin
+          cp bee2-sdk/board/evb/ble_peripheral_gcc/build/peripheral.elf build/artifacts/EH-MC16-TEST.elf
+          cp build/image-info.txt build/artifacts/image-info.txt
+          sha256sum build/artifacts/* > build/artifacts/SHA256SUMS.txt
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eh-mc16-test-firmware
+          path: build/artifacts/
+          if-no-files-found: error
