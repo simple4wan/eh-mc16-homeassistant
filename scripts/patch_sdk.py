@@ -66,6 +66,14 @@ main_c.write_text(text, encoding="utf-8")
 btext = board_h.read_text(encoding="utf-8")
 btext = btext.replace("#define USE_GPIO_DLPS        1", "#define USE_GPIO_DLPS        0", 1)
 btext = btext.replace("#define DLPS_EN               1", "#define DLPS_EN               0", 1)
+# dfu_service.c uses this inside a preprocessor #if, so it must be a
+# compile-time constant. A runtime expression such as (g_ota_mode & 0x1)
+# evaluates false in #if and disables buffer-check.
+btext = btext.replace(
+    "#define DFU_BUFFER_CHECK_ENABLE     (g_ota_mode & 0x1)",
+    "#define DFU_BUFFER_CHECK_ENABLE     1",
+    1,
+)
 board_h.write_text(btext, encoding="utf-8")
 
 print(f"patched {main_c}")
