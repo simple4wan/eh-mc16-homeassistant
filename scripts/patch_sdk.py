@@ -237,6 +237,18 @@ main_c.write_text(text, encoding="utf-8")
 
 # Route HAP run-loop callbacks through the existing Bee2 app task.
 dtext = dfu_application_c.read_text(encoding="utf-8")
+if "extern void EHHomeKitStart(void);" not in dtext:
+    dtext = dtext.replace(
+        '#include "patch_header_check.h"',
+        '#include "patch_header_check.h"\n'
+        'extern void EH_HAP_RunLoopHandleIO(const T_IO_MSG *msg);\n'
+        'extern void EHHomeKitStart(void);\n'
+        'extern bool EHHomeKitIsStarted(void);\n'
+        'extern void EHHomeKitDidConnect(uint8_t conn_id);\n'
+        'extern void EHHomeKitDidDisconnect(uint8_t conn_id);\n'
+        'extern void EHHomeKitDidSendData(uint8_t conn_id);',
+        1,
+    )
 if "EH_HAP_RunLoopHandleIO" not in dtext:
     dtext = dtext.replace(
         '#include "otp_config.h"',
