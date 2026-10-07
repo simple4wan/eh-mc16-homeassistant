@@ -21,6 +21,7 @@ from Crypto.Cipher import AES
 DFU_SERVICE = "00006287-3c17-d293-8e48-14fe2e4da212"
 DFU_DATA = "00006387-3c17-d293-8e48-14fe2e4da212"
 DFU_CTRL = "00006487-3c17-d293-8e48-14fe2e4da212"
+OTA_SERVICE = "0000d0ff-3c17-d293-8e48-14fe2e4da212"
 OTA_DEVICE_INFO = "0000fff1-0000-1000-8000-00805f9b34fb"
 
 OP_START = 0x01
@@ -116,12 +117,29 @@ class DfuSession:
 
     async def read_device_info(self):
         try:
-            raw = bytes(await self.client.read_gatt_char(OTA_DEVICE_INFO))
+            target_char = None
+            for service in self.client.services:
+                if str(service.uuid).lower() != OTA_SERVICE.lower():
+                    continue
+                for char in service.characteristics:
+                    if str(char.uuid).lower() == OTA_DEVICE_INFO.lower():
+                        target_char = char
+                        break
+                if target_char is not None:
+                    break
+
+            if target_char is None:
+                raise RuntimeError("FFF1 device-info characteristic not found under D0FF service")
+
+            raw = bytes(await self.client.read_gatt_char(target_char))
+            print(
+                f"device-info handle=0x{target_char.handle:04X} "
+                f"service={OTA_SERVICE}: {raw.hex(' ')}"
+            )
         except Exception as exc:
             print(f"device-info: unavailable ({exc})")
             return None
 
-        print("device-info:", raw.hex(" "))
         if len(raw) == 12 and raw[1] == 0x01:
             mode = raw[3]
             info = {
