@@ -42,6 +42,9 @@ INCLUDES=(
 )
 
 echo "[homekit] building Mbed TLS crypto archive"
+# The upstream 2.18 config enables host-only timing code by default.
+# HAP BLE does not use it on this MCU.
+sed -i 's/^#define MBEDTLS_TIMING_C/\/\/ #undef MBEDTLS_TIMING_C/' "$MBED/include/mbedtls/config.h"
 make -C "$MBED/library" clean >/dev/null || true
 make -C "$MBED/library" libmbedcrypto.a \
   CC="$CC" AR="$AR" \
