@@ -45,16 +45,11 @@ HAPError HandleOutletOnRead(
 }
 
 HAPError HandleOutletOnWrite(
-        HAPAccessoryServerRef* server,
-        const HAPBoolCharacteristicWriteRequest* request,
+        HAPAccessoryServerRef* server HAP_UNUSED,
+        const HAPBoolCharacteristicWriteRequest* request HAP_UNUSED,
         bool value,
         void* _Nullable context HAP_UNUSED) {
-    bool old = EHHomeKitOutletGetOn();
     EHHomeKitOutletSetOn(value);
-    if (old != value) {
-        HAPAccessoryServerRaiseEvent(server, request->characteristic, request->service, request->accessory);
-        HAPAccessoryServerRaiseEvent(server, &outletInUseCharacteristic, request->service, request->accessory);
-    }
     return kHAPError_None;
 }
 
@@ -83,3 +78,17 @@ void AccessoryServerHandleSessionAccept(HAPAccessoryServerRef* server HAP_UNUSED
 void AccessoryServerHandleSessionInvalidate(HAPAccessoryServerRef* server HAP_UNUSED, HAPSessionRef* session HAP_UNUSED, void* _Nullable context HAP_UNUSED) {}
 void RestorePlatformFactorySettings(void) {}
 const HAPAccessory* AppGetAccessoryInfo(void) { return &accessory; }
+
+void EHHomeKitOutletStateChanged(void) {
+    if (!accessoryConfiguration.server) return;
+    HAPAccessoryServerRaiseEvent(
+            accessoryConfiguration.server,
+            &outletOnCharacteristic,
+            &outletService,
+            &accessory);
+    HAPAccessoryServerRaiseEvent(
+            accessoryConfiguration.server,
+            &outletInUseCharacteristic,
+            &outletService,
+            &accessory);
+}
