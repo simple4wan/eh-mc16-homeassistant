@@ -305,8 +305,7 @@ void HAPPlatformBLEPeripheralManagerStartAdvertising(
         const void* scanResponseBytes,
         size_t numScanResponseBytes) {
     if (numAdvertisingBytes > 31 || numScanResponseBytes > 31) return;
-    (void) le_adv_stop();
-
+    m->advertisingRequested = true;
     memcpy(m->advertisingBytes, advertisingBytes, numAdvertisingBytes);
     m->numAdvertisingBytes = (uint8_t)numAdvertisingBytes;
     if (scanResponseBytes && numScanResponseBytes) {
@@ -321,13 +320,19 @@ void HAPPlatformBLEPeripheralManagerStartAdvertising(
     le_adv_set_param(GAP_PARAM_ADV_INTERVAL_MAX, sizeof interval, &interval);
     le_adv_set_param(GAP_PARAM_ADV_DATA, m->numAdvertisingBytes, m->advertisingBytes);
     le_adv_set_param(GAP_PARAM_SCAN_RSP_DATA, m->numScanResponseBytes, m->scanResponseBytes);
-    (void) le_adv_update_param();
-    (void) le_adv_start();
-    m->advertising = true;
+    if (m->stackReady) {
+        (void) le_adv_stop();
+        (void) le_adv_update_param();
+        (void) le_adv_start();
+        m->advertising = true;
+    }
 }
 
 void HAPPlatformBLEPeripheralManagerStopAdvertising(HAPPlatformBLEPeripheralManagerRef m) {
-    (void) le_adv_stop();
+    m->advertisingRequested = false;
+    if (m->stackReady) {
+        (void) le_adv_stop();
+    }
     m->advertising = false;
 }
 
@@ -366,6 +371,15 @@ HAPError HAPPlatformBLEPeripheralManagerSendHandleValueIndication(
         }
     }
     return kHAPError_InvalidState;
+}
+
+void EH_HAP_BLE_StackReady(HAPPlatformBLEPeripheralManagerRef m) {
+    m->stackReady = true;
+    if (m->advertisingRequested) {
+        (void) le_adv_update_param();
+        (void) le_adv_start();
+        m->advertising = true;
+    }
 }
 
 void EH_HAP_BLE_DidConnect(HAPPlatformBLEPeripheralManagerRef m, uint8_t connId) {
