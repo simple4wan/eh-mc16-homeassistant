@@ -28,6 +28,7 @@ OP_ACTIVATE_RESET = 0x04
 OP_RESET = 0x05
 OP_REPORT_TARGET = 0x06
 OP_BUFFER_CHECK = 0x09
+OP_REPORT_BUFFER_CRC = 0x0A
 OP_IC_TYPE = 0x0B
 OP_NOTIFICATION = 0x10
 
@@ -140,10 +141,10 @@ class DfuSession:
 
         if len(rsp) < 3:
             print(f"buffer-check: short response: {rsp.hex(' ')}")
-            return rsp
+            return None
 
         # Realtek response:
-        # 10 09 <support/status> [max_buffer_le16] [mtu_le16]
+        # 10 09 <support> <max_buffer_le16> <mtu_le16>
         support = rsp[2]
         if len(rsp) >= 7:
             max_buffer = struct.unpack_from("<H", rsp, 3)[0]
@@ -152,9 +153,71 @@ class DfuSession:
                 f"buffer-check: support/status=0x{support:02X}, "
                 f"max_buffer={max_buffer}, mtu={mtu}"
             )
-        else:
-            print(f"buffer-check: response={rsp.hex(' ')}")
-        return rsp
+            return support, max_buffer, mtu
+
+        print(f"buffer-check: response={rsp.hex(' ')}")
+        return None
+
+    @staticmethod
+    def _buffer_crc(data: bytes) -> int:
+        # Matches Realtek OTACommand.m: XOR little-endian uint16 words, then htons().
+        # Buffer-check blocks are normally even-sized. Pad an odd final byte with 0.
+        if len(data) & 1:
+            data = data + b"\x00"
+        value = 0
+        for i in range(0, len(data), 2):
+            value ^= data[i] | (data[i + 1] << 8)
+        return ((value & 0xFF) << 8) | ((value >> 8) & 0xFF)
+
+    @staticmethod
+    def _send_unit_from_mtu(mtu: int) -> int:
+        # Matches Realtek iOS OTA client's getMaxTxUnitFromMtu().
+        unit = 16
+        while mtu // unit > 1:
+            unit *= 2
+        return unit
+
+    async def _send_buffer_checked(self, data: bytes, max_buffer: int, mtu: int):
+        send_unit = self._send_unit_from_mtu(mtu)
+        check_unit = (max_buffer // send_unit) * send_unit
+        if check_unit <= 0:
+            raise RuntimeError(f"invalid buffer parameters: max_buffer={max_buffer}, mtu={mtu}")
+
+        print(f"buffer-check transfer: send_unit={send_unit}, check_unit={check_unit}")
+        total = len(data)
+        pos = 0
+
+        while pos < total:
+            # The first transmitted region starts at image offset 12. Realtek's
+            # reference client therefore fills the first check-buffer only up
+            # to absolute image offset check_unit.
+            if pos == 0:
+                block_len = min(total, max(1, check_unit - CTRL_HEADER_SIZE))
+            else:
+                block_len = min(total - pos, check_unit)
+
+            block = data[pos:pos + block_len]
+
+            for off in range(0, len(block), send_unit):
+                chunk = block[off:off + send_unit]
+                await self.client.write_gatt_char(DFU_DATA, chunk, response=False)
+                await asyncio.sleep(0.003)
+
+            crc = self._buffer_crc(block)
+            rsp = await self.command(
+                bytes([OP_REPORT_BUFFER_CRC]) + struct.pack("<HH", len(block), crc),
+                timeout=12.0,
+            )
+            if len(rsp) < 3:
+                raise RuntimeError(f"buffer-check short response: {rsp.hex(' ')}")
+            if rsp[2] != STATUS_SUCCESS:
+                retry_addr = struct.unpack_from("<I", rsp, 3)[0] if len(rsp) >= 7 else None
+                raise RuntimeError(
+                    f"buffer-check failed status=0x{rsp[2]:02X}, retry_addr={retry_addr!r}"
+                )
+
+            pos += len(block)
+            print(f"  checked: {pos}/{total} bytes ({pos * 100 // total}%)")
 
     async def flash(self, image: bytes):
         h = validate_app_patch(image)
@@ -182,16 +245,13 @@ class DfuSession:
         total = len(payload)
         sent = 0
 
-        # Conservative 20-byte chunks for maximum compatibility with the
-        # observed EH-MC16 GATT implementation.
-        for pos in range(0, total, 20):
-            chunk = payload[pos:pos + 20]
-            await self.client.write_gatt_char(DFU_DATA, chunk, response=False)
-            sent += len(chunk)
-            if sent % 1024 < 20 or sent == total:
-                print(f"  data  : {sent}/{total} bytes ({sent * 100 // total}%)")
-            # Small pacing delay avoids overrunning old Bee2 firmware.
-            await asyncio.sleep(0.006)
+        buf = await self.probe_buffer_check()
+        if not buf or buf[0] != 0x01:
+            raise RuntimeError(
+                "target did not enable buffer-check; refusing first experimental flash"
+            )
+        _, max_buffer, mtu = buf
+        await self._send_buffer_checked(payload, max_buffer, mtu)
 
         rsp = await self.command(bytes([OP_VALIDATE]) + struct.pack("<H", image_id), timeout=12.0)
         if rsp[2] != STATUS_SUCCESS:
