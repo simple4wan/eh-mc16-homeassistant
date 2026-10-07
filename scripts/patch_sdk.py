@@ -43,7 +43,7 @@ flash_map_h.write_text(flash, encoding="utf-8")
 
 text = text.replace(
     '#include "rtl876x_gpio.h"',
-    '#include "rtl876x_gpio.h"\n#include "rtl876x_wdg.h"\n#include "platform_utils.h"\nextern void EHHomeKitStart(void);\nextern void EHHomeKitFactoryReset(void);\nextern void EHHomeKitOutletStateChanged(void);',
+    '#include "rtl876x_gpio.h"\n#include "rtl876x_wdg.h"\n#include "platform_utils.h"\n#include "rtl876x_aon_wdg.h"\nextern void EHHomeKitStart(void);\nextern void EHHomeKitFactoryReset(void);\nextern void EHHomeKitOutletStateChanged(void);',
     1,
 )
 
@@ -248,29 +248,41 @@ if _boot_anchor not in text:
     raise SystemExit("expected EHHomeKitOutletGetOn block for boot marker")
 text = text.replace(
     _boot_anchor,
-    _boot_anchor + """void EHBootMark(uint8_t stage)
+    _boot_anchor + """static void eh_diag_delay(uint32_t ms)
+{
+#if (AON_WDG_ENABLE == 1)
+    AON_WDG_Restart();
+#endif
+    WDG_Restart();
+    platform_delay_ms(ms);
+#if (AON_WDG_ENABLE == 1)
+    AON_WDG_Restart();
+#endif
+    WDG_Restart();
+}
+
+void EHBootMark(uint8_t stage)
 {
     eh_boot_stage = stage;
 
-    /* Diagnostic build: synchronous red stage code.
-       Blink N times, pause, then leave red ON while the next operation runs.
-       Busy delay is intentional here: this must work even if the RTOS timer
-       service is the thing that is broken. */
+    /* Short synchronous stage code. Feed both watchdogs around every delay
+       so the diagnostic itself cannot cause the reboot we are trying to
+       diagnose. */
     GPIO_ResetBits(GPIO_GetPin(P2_2));
     GPIO_ResetBits(GPIO_GetPin(P2_3));
-    platform_delay_ms(300);
+    eh_diag_delay(80);
 
     for (uint8_t i = 0; i < stage; i++)
     {
         GPIO_SetBits(GPIO_GetPin(P2_2));
         GPIO_ResetBits(GPIO_GetPin(P2_3));
-        platform_delay_ms(220);
+        eh_diag_delay(90);
         GPIO_ResetBits(GPIO_GetPin(P2_2));
         GPIO_ResetBits(GPIO_GetPin(P2_3));
-        platform_delay_ms(220);
+        eh_diag_delay(90);
     }
 
-    platform_delay_ms(700);
+    eh_diag_delay(180);
     GPIO_SetBits(GPIO_GetPin(P2_2));
     GPIO_ResetBits(GPIO_GetPin(P2_3));
 }
@@ -281,23 +293,23 @@ void EHBootFatal(void)
     if (stage < 1) stage = 1;
     if (stage > 9) stage = 9;
 
-    /* Fatal path: repeat BLUE stage code forever. */
+    /* Fatal path: repeat BLUE stage code forever, also feeding watchdogs. */
     for (;;)
     {
         GPIO_ResetBits(GPIO_GetPin(P2_2));
         GPIO_ResetBits(GPIO_GetPin(P2_3));
-        platform_delay_ms(500);
+        eh_diag_delay(200);
 
         for (uint8_t i = 0; i < stage; i++)
         {
             GPIO_ResetBits(GPIO_GetPin(P2_2));
             GPIO_SetBits(GPIO_GetPin(P2_3));
-            platform_delay_ms(220);
+            eh_diag_delay(90);
             GPIO_ResetBits(GPIO_GetPin(P2_2));
             GPIO_ResetBits(GPIO_GetPin(P2_3));
-            platform_delay_ms(220);
+            eh_diag_delay(90);
         }
-        platform_delay_ms(1200);
+        eh_diag_delay(500);
     }
 }
 
@@ -307,8 +319,8 @@ void EHBootFatal(void)
 
 if "void EHBootMark(uint8_t stage)" not in text or "void EHBootFatal(void)" not in text:
     raise SystemExit("boot diagnostic hooks missing from main.c")
-if "platform_delay_ms(220)" not in text:
-    raise SystemExit("synchronous boot diagnostic pulses missing from main.c")
+if "eh_diag_delay(90)" not in text or "AON_WDG_Restart()" not in text:
+    raise SystemExit("watchdog-safe synchronous diagnostics missing from main.c")
 main_c.write_text(text, encoding="utf-8")
 
 
