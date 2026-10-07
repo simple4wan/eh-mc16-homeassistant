@@ -1,10 +1,10 @@
 {
   "domain": "eh_mc16",
-  "name": "EH-MC16 BLE Plug",
+  "name": "HONYAR ICH8403TM BLE Plug",
   "version": "0.1.0",
   "config_flow": true,
-  "documentation": "https://github.com/simple4wan/eh-mc16-homeassistant",
-  "issue_tracker": "https://github.com/simple4wan/eh-mc16-homeassistant/issues",
+  "documentation": "https://github.com/simple4wan/honyar-ich8403tm-ha",
+  "issue_tracker": "https://github.com/simple4wan/honyar-ich8403tm-ha/issues",
   "dependencies": ["bluetooth_adapters"],
   "bluetooth": [
     {
