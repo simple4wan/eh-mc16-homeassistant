@@ -28,3 +28,21 @@ GitHub Actions clones the public Bee2/RTL8762C GCC SDK mirror and builds the `bl
 The workflow uploads the generated firmware files as an Actions artifact.
 
 > WARNING: Do not flash artifacts from this repository until the image header and OTA compatibility have been verified against the target EH-MC16. Smart plugs contain mains voltage; never connect a PC debugger/USB-UART to a mains-powered non-isolated board.
+
+
+## BLE DFU helper (experimental)
+
+A Python/Bleak helper now lives at `tools/ble_dfu.py`.
+
+Read-only probe on macOS/Linux:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python tools/ble_dfu.py --name EH-MC16
+```
+
+The default mode is probe-only and does not write firmware. It verifies the Bee2 DFU service, reads `ic_type`, and queries AppPatch target info.
+
+Firmware flashing is intentionally gated behind both `--flash` and `--yes`. Do not use it yet until the generated image and target-specific DFU behavior have been validated further.
