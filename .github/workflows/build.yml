@@ -218,3 +218,74 @@ jobs:
           name: eh-mc16-homekit-ble-firmware
           path: build/artifacts/
           if-no-files-found: error
+
+
+  layout-bridge:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Install ARM GCC
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi make git file
+
+      - name: Fetch pinned Bee2 SDK
+        run: |
+          git clone https://github.com/wuwbobo/rtl8762c-sdk-gcc.git bee2-sdk-bridge
+          cd bee2-sdk-bridge
+          git checkout 88aa8c7b72370f86a0841a07610901ef4091094e
+
+      - name: Prepare Linux build tools
+        run: |
+          chmod +x bee2-sdk-bridge/tool/memory_icf/MemDefine || true
+          chmod +x bee2-sdk-bridge/tool/hex2bin/Hex2Bin || true
+          chmod +x bee2-sdk-bridge/tool/prepend_header/prepend_header || true
+          chmod +x bee2-sdk-bridge/tool/md5/md5 || true
+          PROJECT=bee2-sdk-bridge/board/evb/silent_ota_gcc/Makefile
+          sed -i 's#../../../tool/memory_icf/MemDefine\.exe#../../../tool/memory_icf/MemDefine#g' "$PROJECT"
+          sed -i 's#../../../../sdk/src/mcu/rtl876x/arm/startup_rtl8762c_gcc\.s#../../../src/mcu/rtl876x/arm/startup_rtl8762c_gcc.s#g' "$PROJECT"
+
+      - name: Apply 512K OTA layout bridge
+        run: |
+          python3 scripts/patch_layout_bridge.py bee2-sdk-bridge
+
+      - name: Build layout bridge
+        working-directory: bee2-sdk-bridge/board/evb/silent_ota_gcc
+        run: |
+          make clean || true
+          make V=1
+
+      - name: Verify bridge is small enough for legacy 92K OTA slot
+        run: |
+          python3 scripts/inspect_image.py \
+            bee2-sdk-bridge/board/evb/silent_ota_gcc/bin/silent_ota_MP.bin \
+            build/layout-bridge-image-info.txt
+          cat build/layout-bridge-image-info.txt
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          p = Path("build/layout-bridge-image-info.txt").read_text()
+          m = re.search(r"payload_len=(\d+)", p)
+          if not m:
+              raise SystemExit("payload_len missing")
+          n = int(m.group(1))
+          if n > 92 * 1024:
+              raise SystemExit(f"layout bridge too large for old OTA slot: {n} bytes")
+          print(f"bridge payload fits legacy OTA slot: {n} bytes")
+          PY
+
+      - name: Collect bridge artifact
+        run: |
+          mkdir -p build/bridge-artifacts
+          cp bee2-sdk-bridge/board/evb/silent_ota_gcc/bin/silent_ota_MP.bin build/bridge-artifacts/EH-MC16-LAYOUT-BRIDGE_MP.bin
+          cp build/layout-bridge-image-info.txt build/bridge-artifacts/image-info.txt
+          sha256sum build/bridge-artifacts/* > build/bridge-artifacts/SHA256SUMS.txt
+
+      - name: Upload bridge artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eh-mc16-layout-bridge-firmware
+          path: build/bridge-artifacts/
+          if-no-files-found: error
