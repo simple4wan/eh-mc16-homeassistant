@@ -214,7 +214,7 @@ dtext = dfu_application_c.read_text(encoding="utf-8")
 if "EH_HAP_RunLoopHandleIO" not in dtext:
     dtext = dtext.replace(
         '#include "otp_config.h"',
-        '#include "otp_config.h"\nextern void EH_HAP_RunLoopHandleIO(const T_IO_MSG *msg);',
+        '#include "otp_config.h"\nextern void EH_HAP_RunLoopHandleIO(const T_IO_MSG *msg);\nextern void EHHomeKitStart(void);\nextern bool EHHomeKitIsStarted(void);\nextern void EHHomeKitDidConnect(uint8_t conn_id);\nextern void EHHomeKitDidDisconnect(uint8_t conn_id);\nextern void EHHomeKitDidSendData(uint8_t conn_id);',
         1,
     )
     dtext = dtext.replace(
@@ -241,6 +241,77 @@ if "EH_HAP_RunLoopHandleIO" not in dtext:
 """,
         1,
     )
+dtext = dtext.replace(
+    """        if (new_state.gap_init_state == GAP_INIT_STATE_STACK_READY)
+        {
+            /*stack ready*/
+            le_adv_start();
+        }
+""",
+    """        if (new_state.gap_init_state == GAP_INIT_STATE_STACK_READY)
+        {
+            /* Stack is ready: HAP registers its GATT database and starts
+               the HomeKit BLE advertisement. */
+            EHHomeKitStart();
+        }
+""",
+    1,
+)
+
+# Feed connection lifecycle into HAP. Keep the dedicated OTA reboot path intact.
+dtext = dtext.replace(
+    """    case GAP_CONN_STATE_DISCONNECTED:
+        {
+""",
+    """    case GAP_CONN_STATE_DISCONNECTED:
+        {
+            EHHomeKitDidDisconnect(conn_id);
+""",
+    1,
+)
+dtext = dtext.replace(
+    """    case GAP_CONN_STATE_CONNECTED:
+        {
+""",
+    """    case GAP_CONN_STATE_CONNECTED:
+        {
+            EHHomeKitDidConnect(conn_id);
+""",
+    1,
+)
+
+# In normal HomeKit mode HAP owns advertising after a disconnect.
+dtext = dtext.replace(
+    """                {
+                    le_adv_start();
+                }
+""",
+    """                {
+                    if (!EHHomeKitIsStarted())
+                    {
+                        le_adv_start();
+                    }
+                }
+""",
+    1,
+)
+
+# Let HAP know when an indication has completed so it can send the next one.
+dtext = dtext.replace(
+    """            if (p_param->event_data.send_data_result.cause == GAP_SUCCESS)
+            {
+                APP_PRINT_INFO0("PROFILE_EVT_SEND_DATA_COMPLETE success");
+            }
+""",
+    """            if (p_param->event_data.send_data_result.cause == GAP_SUCCESS)
+            {
+                APP_PRINT_INFO0("PROFILE_EVT_SEND_DATA_COMPLETE success");
+                EHHomeKitDidSendData(p_param->event_data.send_data_result.conn_id);
+            }
+""",
+    1,
+)
+
 dfu_application_c.write_text(dtext, encoding="utf-8")
 
 
