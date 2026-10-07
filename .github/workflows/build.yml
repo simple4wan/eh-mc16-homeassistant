@@ -33,8 +33,10 @@ jobs:
 
           PROJECT=bee2-sdk/board/evb/ble_peripheral_gcc/Makefile
 
-          # The upstream GCC example references the Windows MemDefine executable.
+          # The mirror is flattened compared with the original SDK ZIP.
+          # Fix Windows-only tool name and the stale startup source path.
           sed -i 's#../../../tool/memory_icf/MemDefine\.exe#../../../tool/memory_icf/MemDefine#g' "$PROJECT"
+          sed -i 's#../../../../sdk/src/mcu/rtl876x/arm/startup_rtl8762c_gcc\.s#../../../src/mcu/rtl876x/arm/startup_rtl8762c_gcc.s#g' "$PROJECT"
 
       - name: Apply EH-MC16 test identity
         run: |
@@ -48,7 +50,9 @@ jobs:
 
       - name: Inspect generated image
         run: |
-          python3 scripts/inspect_image.py             bee2-sdk/board/evb/ble_peripheral_gcc/bin/peripheral_MP.bin             build/image-info.txt
+          python3 scripts/inspect_image.py \
+            bee2-sdk/board/evb/ble_peripheral_gcc/bin/peripheral_MP.bin \
+            build/image-info.txt
           cat build/image-info.txt
 
       - name: Collect artifacts
