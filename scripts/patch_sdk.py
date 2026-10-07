@@ -243,6 +243,7 @@ if "extern void EHHomeKitStart(void);" not in dtext:
         '#include "patch_header_check.h"\n'
         'extern void EH_HAP_RunLoopHandleIO(const T_IO_MSG *msg);\n'
         'extern void EHHomeKitStart(void);\n'
+        'extern void EHHomeKitStackReady(void);\n'
         'extern bool EHHomeKitIsStarted(void);\n'
         'extern void EHHomeKitDidConnect(uint8_t conn_id);\n'
         'extern void EHHomeKitDidDisconnect(uint8_t conn_id);\n'
@@ -288,9 +289,9 @@ dtext = dtext.replace(
 """,
     """        if (new_state.gap_init_state == GAP_INIT_STATE_STACK_READY)
         {
-            /* Stack is ready: HAP registers its GATT database and starts
-               the HomeKit BLE advertisement. */
-            EHHomeKitStart();
+            /* HAP services were registered before the stack started.
+               Now allow the cached HomeKit advertisement to go on air. */
+            EHHomeKitStackReady();
         }
 """,
     1,
