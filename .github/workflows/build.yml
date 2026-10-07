@@ -1,4 +1,4 @@
-name: Build EH-MC16 test firmware
+name: Build EH-MC16 recovery test firmware
 
 on:
   push:
@@ -31,7 +31,7 @@ jobs:
           chmod +x bee2-sdk/tool/prepend_header/prepend_header || true
           chmod +x bee2-sdk/tool/md5/md5 || true
 
-          PROJECT=bee2-sdk/board/evb/ble_peripheral_gcc/Makefile
+          PROJECT=bee2-sdk/board/evb/silent_ota_gcc/Makefile
 
           # The mirror is flattened compared with the original SDK ZIP.
           # Fix Windows-only tool name and the stale startup source path.
@@ -43,7 +43,7 @@ jobs:
           python3 scripts/patch_sdk.py bee2-sdk
 
       - name: Build
-        working-directory: bee2-sdk/board/evb/ble_peripheral_gcc
+        working-directory: bee2-sdk/board/evb/silent_ota_gcc
         run: |
           make clean || true
           make V=1
@@ -51,22 +51,22 @@ jobs:
       - name: Inspect generated image
         run: |
           python3 scripts/inspect_image.py \
-            bee2-sdk/board/evb/ble_peripheral_gcc/bin/peripheral_MP.bin \
+            bee2-sdk/board/evb/silent_ota_gcc/bin/silent_ota_MP.bin \
             build/image-info.txt
           cat build/image-info.txt
 
       - name: Collect artifacts
         run: |
           mkdir -p build/artifacts
-          cp bee2-sdk/board/evb/ble_peripheral_gcc/bin/peripheral_MP.bin build/artifacts/EH-MC16-TEST_MP.bin
-          cp bee2-sdk/board/evb/ble_peripheral_gcc/bin/peripheral.bin build/artifacts/EH-MC16-TEST.bin
-          cp bee2-sdk/board/evb/ble_peripheral_gcc/build/peripheral.elf build/artifacts/EH-MC16-TEST.elf
+          cp bee2-sdk/board/evb/silent_ota_gcc/bin/silent_ota_MP.bin build/artifacts/EH-MC16-RECOVERY-TEST_MP.bin
+          cp bee2-sdk/board/evb/silent_ota_gcc/bin/silent_ota.bin build/artifacts/EH-MC16-RECOVERY-TEST.bin
+          cp bee2-sdk/board/evb/silent_ota_gcc/build/silent_ota.elf build/artifacts/EH-MC16-RECOVERY-TEST.elf
           cp build/image-info.txt build/artifacts/image-info.txt
           sha256sum build/artifacts/* > build/artifacts/SHA256SUMS.txt
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
-          name: eh-mc16-test-firmware
+          name: eh-mc16-recovery-test-firmware
           path: build/artifacts/
           if-no-files-found: error
