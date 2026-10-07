@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <string.h>
 
+extern void EHBootTrace(uint8_t code);
+
 #define EH_HAP_KVS_MAGIC 0x484B5653u /* "HKVS" */
 
 typedef struct {
@@ -53,6 +55,7 @@ HAPError HAPPlatformKeyValueStoreGet(
         size_t maxBytes,
         size_t* numBytes,
         bool* found) {
+    EHBootTrace(3); /* KVS get entered */
     if (!store || !found || (bytes && !numBytes)) return kHAPError_Unknown;
 
     *found = false;
@@ -71,6 +74,7 @@ HAPError HAPPlatformKeyValueStoreGet(
         }
         return kHAPError_None;
     }
+    EHBootTrace(4); /* KVS get completed */
     return kHAPError_None;
 }
 
@@ -80,6 +84,7 @@ HAPError HAPPlatformKeyValueStoreSet(
         HAPPlatformKeyValueStoreKey key,
         const void* bytes,
         size_t numBytes) {
+    EHBootTrace(5); /* KVS set entered */
     if (!store || !bytes || numBytes > EH_HAP_KVS_MAX_VALUE_BYTES) return kHAPError_Unknown;
 
     int freeSlot = -1;
@@ -104,7 +109,9 @@ HAPError HAPPlatformKeyValueStoreSet(
     record.numBytes = (uint16_t)numBytes;
     memcpy(record.bytes, bytes, numBytes);
 
-    return WriteSlot(store, (uint8_t)freeSlot, &record) ? kHAPError_None : kHAPError_Unknown;
+    HAPError result = WriteSlot(store, (uint8_t)freeSlot, &record) ? kHAPError_None : kHAPError_Unknown;
+    EHBootTrace(6); /* KVS set completed */
+    return result;
 }
 
 HAPError HAPPlatformKeyValueStoreRemove(
