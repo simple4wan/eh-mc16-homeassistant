@@ -127,6 +127,17 @@ jobs:
             -Imbedtls/include \
             homekit-adk/PAL/Crypto/MbedTLS/HAPMbedTLS.c
 
+      - name: Syntax-check Bee2 HAP log abort PAL
+        run: |
+          arm-none-eabi-gcc -std=gnu11 -fsyntax-only \
+            -D__has_feature\(x\)=0 \
+            -Ihomekit-adk/HAP \
+            -Ihomekit-adk/PAL \
+            -Ibee2-sdk/inc \
+            -Ibee2-sdk/inc/peripheral \
+            homekit/bee2/HAPPlatformLog.c \
+            homekit/bee2/HAPPlatformAbort.c
+
       - name: Prepare Linux build tools
         run: |
           chmod +x bee2-sdk/tool/memory_icf/MemDefine || true
