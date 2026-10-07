@@ -139,6 +139,11 @@ jobs:
             homekit/bee2/HAPPlatformLog.c \
             homekit/bee2/HAPPlatformAbort.c
 
+      - name: Build HomeKit ARM archives
+        run: |
+          chmod +x scripts/build_homekit_arm.sh
+          scripts/build_homekit_arm.sh homekit-adk mbedtls bee2-sdk build/homekit-arm
+
       - name: Prepare Linux build tools
         run: |
           chmod +x bee2-sdk/tool/memory_icf/MemDefine || true
