@@ -224,19 +224,17 @@ class DfuSession:
             raise RuntimeError("FFD8 probe-control characteristic not found under D0FF service")
         pin = 21  # P2_5
         print("Testing suspected relay pin P2_5.")
-        print("Sequence: input -> LOW 1.5s -> input -> HIGH 1.5s -> input.")
+        print("Sequence: LOW 3s -> HIGH 3s -> LOW 3s -> input.")
         try:
-            await self.client.write_gatt_char(test_char, bytes([pin, 0]), response=False)
-            await asyncio.sleep(0.6)
             print("  P2_5 = LOW")
             await self.client.write_gatt_char(test_char, bytes([pin, 1]), response=False)
-            await asyncio.sleep(1.5)
-            print("  P2_5 = input")
-            await self.client.write_gatt_char(test_char, bytes([pin, 0]), response=False)
-            await asyncio.sleep(0.8)
+            await asyncio.sleep(3.0)
             print("  P2_5 = HIGH")
             await self.client.write_gatt_char(test_char, bytes([pin, 2]), response=False)
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(3.0)
+            print("  P2_5 = LOW")
+            await self.client.write_gatt_char(test_char, bytes([pin, 1]), response=False)
+            await asyncio.sleep(3.0)
         finally:
             try:
                 await self.client.write_gatt_char(test_char, bytes([pin, 0]), response=False)
@@ -248,14 +246,14 @@ class DfuSession:
         test_char = self._find_char(OTA_SERVICE, OTA_TEST_MODE)
         if test_char is None:
             raise RuntimeError("FFD8 probe-control characteristic not found under D0FF service")
-        a, b = 22, 23  # P2_6, P2_7
-        print("Testing suspected two-color LED pair P2_6/P2_7.")
-        print("State A: P2_6=HIGH, P2_7=LOW for 2s")
+        a, b = 18, 19  # P2_2, P2_3
+        print("Testing suspected two-color LED pair P2_2/P2_3.")
+        print("State A: P2_2=HIGH, P2_3=LOW for 2s")
         try:
             await self.client.write_gatt_char(test_char, bytes([a, 2]), response=False)
             await self.client.write_gatt_char(test_char, bytes([b, 1]), response=False)
             await asyncio.sleep(2.0)
-            print("State B: P2_6=LOW, P2_7=HIGH for 2s")
+            print("State B: P2_2=LOW, P2_3=HIGH for 2s")
             await self.client.write_gatt_char(test_char, bytes([a, 1]), response=False)
             await self.client.write_gatt_char(test_char, bytes([b, 2]), response=False)
             await asyncio.sleep(2.0)
@@ -265,7 +263,7 @@ class DfuSession:
                     await self.client.write_gatt_char(test_char, bytes([pin, 0]), response=False)
                 except Exception:
                     pass
-        print("P2_6/P2_7 restored to input mode")
+        print("P2_2/P2_3 restored to input mode")
 
     async def read_device_info(self):
         try:
@@ -828,7 +826,7 @@ def main():
     p.add_argument(
         "--test-led-pair",
         action="store_true",
-        help="drive P2_6/P2_7 in opposite states to identify the two-color LED",
+        help="drive P2_2/P2_3 in opposite states to identify the two-color LED",
     )
     p.add_argument("--flash", action="store_true", help="perform DFU (writes flash)")
     p.add_argument("--yes", action="store_true", help="required acknowledgement for --flash")
