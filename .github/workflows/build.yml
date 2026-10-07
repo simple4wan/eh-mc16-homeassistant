@@ -81,6 +81,18 @@ jobs:
             -Ibee2-sdk/inc/platform \
             homekit/bee2/HAPPlatformKeyValueStore.c
 
+      - name: Syntax-check Bee2 HAP run loop
+        run: |
+          arm-none-eabi-gcc -std=gnu11 -fsyntax-only \
+            -D__has_feature\(x\)=0 \
+            -Ihomekit/bee2 \
+            -Ihomekit-adk/HAP \
+            -Ihomekit-adk/PAL \
+            -Ibee2-sdk/inc \
+            -Ibee2-sdk/inc/app \
+            -Ibee2-sdk/inc/os \
+            homekit/bee2/HAPPlatformRunLoop.c
+
       - name: Prepare Linux build tools
         run: |
           chmod +x bee2-sdk/tool/memory_icf/MemDefine || true
