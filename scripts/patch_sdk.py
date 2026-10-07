@@ -287,6 +287,31 @@ void EHBootMark(uint8_t stage)
     GPIO_ResetBits(GPIO_GetPin(P2_3));
 }
 
+void EHBootTrace(uint8_t code)
+{
+    if (code < 1) code = 1;
+    if (code > 9) code = 9;
+
+    /* One-shot BLUE sub-stage code used only while stage 7 is running.
+       Return to solid red afterwards so the last blue count identifies the
+       final completed/entered platform operation. */
+    GPIO_ResetBits(GPIO_GetPin(P2_2));
+    GPIO_ResetBits(GPIO_GetPin(P2_3));
+    eh_diag_delay(120);
+    for (uint8_t i = 0; i < code; i++)
+    {
+        GPIO_ResetBits(GPIO_GetPin(P2_2));
+        GPIO_SetBits(GPIO_GetPin(P2_3));
+        eh_diag_delay(100);
+        GPIO_ResetBits(GPIO_GetPin(P2_2));
+        GPIO_ResetBits(GPIO_GetPin(P2_3));
+        eh_diag_delay(100);
+    }
+    eh_diag_delay(250);
+    GPIO_SetBits(GPIO_GetPin(P2_2));
+    GPIO_ResetBits(GPIO_GetPin(P2_3));
+}
+
 void EHBootFatal(void)
 {
     uint8_t stage = eh_boot_stage;
@@ -317,7 +342,7 @@ void EHBootFatal(void)
     1,
 )
 
-if "void EHBootMark(uint8_t stage)" not in text or "void EHBootFatal(void)" not in text:
+if "void EHBootMark(uint8_t stage)" not in text or "void EHBootTrace(uint8_t code)" not in text or "void EHBootFatal(void)" not in text:
     raise SystemExit("boot diagnostic hooks missing from main.c")
 if "eh_diag_delay(90)" not in text or "AON_WDG_Restart()" not in text:
     raise SystemExit("watchdog-safe synchronous diagnostics missing from main.c")
