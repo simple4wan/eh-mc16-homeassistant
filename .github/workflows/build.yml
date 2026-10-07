@@ -35,6 +35,7 @@ jobs:
           git clone https://github.com/Mbed-TLS/mbedtls.git mbedtls
           cd mbedtls
           git checkout ca933c7e0c9e84738b168b6b0feb89af4183a60a
+          git submodule update --init --recursive
 
       - name: Verify HomeKit BLE port surface
         run: |
