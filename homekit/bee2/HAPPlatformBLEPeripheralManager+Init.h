@@ -41,6 +41,8 @@ struct HAPPlatformBLEPeripheralManager {
 
     bool isDeviceAddressSet;
     bool didPublishAttributes;
+    bool stackReady;
+    bool advertisingRequested;
     bool advertising;
     bool connected;
     uint8_t connId;
@@ -55,6 +57,7 @@ void HAPPlatformBLEPeripheralManagerCreate(
         const HAPPlatformBLEPeripheralManagerOptions* options);
 
 /* Hooks called by the Bee2 application's GAP callback. */
+void EH_HAP_BLE_StackReady(HAPPlatformBLEPeripheralManagerRef blePeripheralManager);
 void EH_HAP_BLE_DidConnect(HAPPlatformBLEPeripheralManagerRef blePeripheralManager, uint8_t connId);
 void EH_HAP_BLE_DidDisconnect(HAPPlatformBLEPeripheralManagerRef blePeripheralManager, uint8_t connId);
 void EH_HAP_BLE_DidSendData(HAPPlatformBLEPeripheralManagerRef blePeripheralManager, uint8_t connId);
