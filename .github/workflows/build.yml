@@ -93,6 +93,20 @@ jobs:
             -Ibee2-sdk/inc/os \
             homekit/bee2/HAPPlatformRunLoop.c
 
+      - name: Syntax-check HomeKit bootstrap
+        run: |
+          arm-none-eabi-gcc -std=gnu11 -fsyntax-only \
+            -D__has_feature\(x\)=0 -DBLE=1 -DIP=0 \
+            -Ihomekit/app \
+            -Ihomekit/bee2 \
+            -Ihomekit-adk/HAP \
+            -Ihomekit-adk/PAL \
+            -Ibee2-sdk/inc \
+            -Ibee2-sdk/inc/app \
+            -Ibee2-sdk/inc/os \
+            -Ibee2-sdk/inc/platform \
+            homekit/bee2/HomeKitBootstrap.c
+
       - name: Prepare Linux build tools
         run: |
           chmod +x bee2-sdk/tool/memory_icf/MemDefine || true
