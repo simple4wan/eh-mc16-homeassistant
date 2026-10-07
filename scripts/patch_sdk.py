@@ -338,8 +338,8 @@ atext = atext.replace(
     1,
 )
 
-if "EHBootMark(1)" not in atext or "EHBootMark(2)" not in atext:
-    raise SystemExit("boot breadcrumb calls missing from app_task.c")
+if "EHBootMark(1)" not in atext or "EHBootMark(9)" not in atext:
+    raise SystemExit("boot diagnostic calls missing from app_task.c")
 _driver_calls = re.findall(r"(?m)^\s*driver_init\(\);\s*$", atext)
 if len(_driver_calls) != 1:
     raise SystemExit(f"expected exactly one driver_init() call in app_task.c, got {len(_driver_calls)}")
