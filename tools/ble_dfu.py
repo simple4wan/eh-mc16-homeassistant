@@ -562,6 +562,30 @@ async def amain(args):
         )
 
     target = await find_target(args.name, args.address)
+    if args.enter_ota_flash:
+        if image is None:
+            raise RuntimeError("--enter-ota-flash requires --image")
+        if not args.yes:
+            raise RuntimeError("--enter-ota-flash also requires --yes")
+
+        async with BleakClient(target, timeout=15.0) as client:
+            print("connected to application")
+            s = DfuSession(client)
+            await s.start_notify()
+            await s.probe()
+            devinfo = await s.read_device_info()
+            if not devinfo:
+                raise RuntimeError("could not capture OTA device-info before reboot")
+            await s.enter_ota_mode()
+
+        beetgt = await find_beetgt_after_reboot()
+        async with BleakClient(beetgt, timeout=15.0) as client:
+            print("connected to BeeTgt OTA mode")
+            s = DfuSession(client)
+            await s.start_notify()
+            await s.flash(image, devinfo_override=devinfo)
+        return
+
     if args.enter_ota:
         async with BleakClient(target, timeout=15.0) as client:
             print("connected")
@@ -632,16 +656,23 @@ def main():
         action="store_true",
         help="write OTA_VALUE_ENTER (0x01) to D0FF/FFD1, reboot into OTA mode, then rescan",
     )
+    p.add_argument(
+        "--enter-ota-flash",
+        action="store_true",
+        help="capture OTA policy, reboot into BeeTgt, then perform DFU there",
+    )
     p.add_argument("--flash", action="store_true", help="perform DFU (writes flash)")
     p.add_argument("--yes", action="store_true", help="required acknowledgement for --flash")
     args = p.parse_args()
 
-    if args.enter_ota and args.flash:
-        p.error("--enter-ota and --flash are mutually exclusive")
+    if sum(bool(x) for x in (args.enter_ota, args.enter_ota_flash, args.flash)) > 1:
+        p.error("--enter-ota, --enter-ota-flash and --flash are mutually exclusive")
     if args.enter_ota and args.image:
         p.error("--enter-ota does not use --image")
     if args.flash and not args.image:
         p.error("--flash requires --image")
+    if args.enter_ota_flash and not args.image:
+        p.error("--enter-ota-flash requires --image")
     try:
         asyncio.run(amain(args))
     except KeyboardInterrupt:
