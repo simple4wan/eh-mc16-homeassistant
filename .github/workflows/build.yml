@@ -107,7 +107,7 @@ jobs:
       - name: Syntax-check HomeKit bootstrap
         run: |
           arm-none-eabi-gcc -std=gnu11 -fsyntax-only \
-            -D__has_feature\(x\)=0 -DBLE=1 -DIP=0 \
+            -D__has_feature\(x\)=0 -DBLE=1 \
             -Ihomekit/app \
             -Ihomekit/bee2 \
             -Ihomekit-adk/HAP \
@@ -125,7 +125,7 @@ jobs:
       - name: Syntax-check HomeKit Mbed TLS crypto PAL
         run: |
           arm-none-eabi-gcc -std=gnu11 -fsyntax-only \
-            -D__has_feature\(x\)=0 -DBLE=1 -DIP=0 \
+            -D__has_feature\(x\)=0 -DBLE=1 \
             -Ihomekit-adk/HAP \
             -Ihomekit-adk/PAL \
             -Ihomekit-adk/PAL/Crypto/MbedTLS \
