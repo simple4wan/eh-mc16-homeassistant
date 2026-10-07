@@ -24,6 +24,16 @@ jobs:
           cd bee2-sdk
           git checkout 88aa8c7b72370f86a0841a07610901ef4091094e
 
+      - name: Fetch pinned HomeKit ADK
+        run: |
+          git clone https://github.com/apple/HomeKitADK.git homekit-adk
+          cd homekit-adk
+          git checkout fb201f98f5fdc7fef6a455054f08b59cca5d1ec8
+
+      - name: Verify HomeKit BLE port surface
+        run: |
+          python3 scripts/check_hap_adk.py homekit-adk
+
       - name: Prepare Linux build tools
         run: |
           chmod +x bee2-sdk/tool/memory_icf/MemDefine || true
