@@ -34,6 +34,20 @@ jobs:
         run: |
           python3 scripts/check_hap_adk.py homekit-adk
 
+      - name: Syntax-check Bee2 HAP BLE adapter
+        run: |
+          arm-none-eabi-gcc -std=gnu11 -fsyntax-only \
+            -D__has_feature\(x\)=0 \
+            -Ihomekit/bee2 \
+            -Ihomekit-adk/PAL \
+            -Ihomekit-adk/HAP \
+            -Ibee2-sdk/inc \
+            -Ibee2-sdk/inc/bluetooth \
+            -Ibee2-sdk/inc/bluetooth/gap \
+            -Ibee2-sdk/inc/bluetooth/profile \
+            -Ibee2-sdk/inc/bluetooth/profile/server \
+            homekit/bee2/HAPPlatformBLEPeripheralManager.c
+
       - name: Prepare Linux build tools
         run: |
           chmod +x bee2-sdk/tool/memory_icf/MemDefine || true
